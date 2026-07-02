@@ -47,29 +47,11 @@ if (backendUrlInput) {
     backendUrlInput.value = localStorage.getItem('testing_backend_host') || '';
 }
 
-// Get Dynamic Backend URLs (supporting local & Hugging Face remote)
+// Backend connection
 function getBackendUrls() {
-    const savedHost = localStorage.getItem('testing_backend_host');
-    const host = window.location.host || '';
-    const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
-
-    // Priority: 1) localStorage override, 2) same-origin if local, 3) default HF backend
-    let backendHost;
-    if (savedHost) {
-        backendHost = savedHost.replace(/^(https?:\/\/|wss?:\/\/)/i, '').replace(/\/$/, '');
-    } else if (isLocal) {
-        backendHost = host;
-    } else if (window.location.protocol === 'file:') {
-        backendHost = '127.0.0.1:8000';
-    } else {
-        // Deployed remotely (e.g. Vercel) — auto-connect to HF Space backend
-        backendHost = DEFAULT_BACKEND_HOST;
-    }
-
-    const isSecure = backendHost.includes('.hf.space') || window.location.protocol === 'https:';
     return {
-        ws: `${isSecure ? 'wss:' : 'ws:'}//${backendHost}/ws`,
-        http: `${isSecure ? 'https:' : 'http:'}//${backendHost}`
+        ws: `wss://${DEFAULT_BACKEND_HOST}/ws`,
+        http: `https://${DEFAULT_BACKEND_HOST}`
     };
 }
 
