@@ -1,8 +1,3 @@
 {
-    "version": 2,
-    "builds": [
-        { "src": "api/**/*.js", "use": "@vercel/node" },
-        { "src": "index.html", "use": "@vercel/static" },
-        { "src": "static/**", "use": "@vercel/static" }
-    ]
+  "cleanUrls": true
 }
