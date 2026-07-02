@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CyberStrike Suite - Security Testing Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-brand">
+            <i class="fas fa-shield-halved"></i>
+            CyberStrike Suite
+        </div>
+        <div class="navbar-nav">
+            <a class="nav-link active" href="#" data-page="dashboard">
+                <i class="fas fa-tachometer-alt"></i> Dashboard
+            </a>
+            <a class="nav-link" href="#" data-page="attacks">
+                <i class="fas fa-bolt"></i> Attacks
+            </a>
+            <a class="nav-link" href="#" data-page="vulnerabilities">
+                <i class="fas fa-bug"></i> Vulnerabilities
+            </a>
+            <a class="nav-link" href="#" data-page="history">
+                <i class="fas fa-history"></i> History
+            </a>
+            <a class="nav-link" href="#" data-page="settings">
+                <i class="fas fa-cog"></i> Settings
+            </a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="sidebar">
+            <div class="sidebar-nav">
+                <a class="nav-link active" href="#" data-page="dashboard">
+                    <i class="fas fa-tachometer-alt"></i> Dashboard
+                </a>
+                <a class="nav-link" href="#" data-page="attacks">
+                    <i class="fas fa-bolt"></i> Attack Types
+                </a>
+                <a class="nav-link" href="#" data-page="vulnerabilities">
+                    <i class="fas fa-bug"></i> Vulnerabilities
+                </a>
+                <a class="nav-link" href="#" data-page="history">
+                    <i class="fas fa-history"></i> Attack History
+                </a>
+                <a class="nav-link" href="#" data-page="settings">
+                    <i class="fas fa-cog"></i> Settings
+                </a>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <!-- Dashboard Page -->
+            <div id="dashboard-page" class="page-content active">
+                <h2 class="mb-4">Dashboard Overview</h2>
+                
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <p class="text-secondary mb-1">Total Requests</p>
+                                        <div class="stats-number" id="total-requests">0</div>
+                                    </div>
+                                    <div class="text-primary">
+                                        <i class="fas fa-exchange-alt fa-2x"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <p class="text-secondary mb-1">Successful</p>
+                                        <div class="stats-number text-success" id="successful-requests">0</div>
+                                    </div>
+                                    <div class="text-success">
+                                        <i class="fas fa-check-circle fa-2x"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <p class="text-secondary mb-1">Failed</p>
+                                        <div class="stats-number text-danger" id="failed-requests">0</div>
+                                    </div>
+                                    <div class="text-danger">
+                                        <i class="fas fa-times-circle fa-2x"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card stats-card">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <p class="text-secondary mb-1">Status</p>
+                                        <div class="d-flex align-items-center">
+                                            <span class="status-indicator status-ready" id="status-indicator"></span>
+                                            <span id="status-text">Ready</span>
+                                        </div>
+                                    </div>
+                                    <div class="text-warning">
+                                        <i class="fas fa-satellite-dish fa-2x"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Response Time</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="chart-container">
+                                    <canvas id="response-time-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Request Rate</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="chart-container">
+                                    <canvas id="request-rate-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">Activity Log</h5>
+                                <button class="btn btn-sm btn-outline-light" id="clear-log">
+                                    <i class="fas fa-trash"></i> Clear Logs
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div class="log-container" id="log-container">
+                                    <div class="log-entry log-info">System initialized. Ready for attacks.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attacks Config Page -->
+            <div id="attacks-page" class="page-content">
+                <h2 class="mb-4">Attack Configuration</h2>
+                
+                <div class="row mb-4">
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Select Attack Type</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="attack-option selected" data-attack="ddos">
+                                    <h5><i class="fas fa-bolt"></i> DDoS Attack</h5>
+                                    <p>Overwhelm target with high volume of requests</p>
+                                </div>
+                                <div class="attack-option" data-attack="sql">
+                                    <h5><i class="fas fa-database"></i> SQL Injection</h5>
+                                    <p>Inject malicious SQL queries to extract data</p>
+                                </div>
+                                <div class="attack-option" data-attack="xss">
+                                    <h5><i class="fas fa-code"></i> XSS Attack</h5>
+                                    <p>Inject malicious scripts into web pages</p>
+                                </div>
+                                <div class="attack-option" data-attack="csrf">
+                                    <h5><i class="fas fa-shield-alt"></i> CSRF Attack</h5>
+                                    <p>Force users to execute unwanted actions</p>
+                                </div>
+                                <div class="attack-option" data-attack="brute">
+                                    <h5><i class="fas fa-key"></i> Brute Force</h5>
+                                    <p>Try credentials to check authentication strength</p>
+                                </div>
+                                <div class="attack-option" data-attack="port">
+                                    <h5><i class="fas fa-network-wired"></i> Port Scan</h5>
+                                    <p>Scan for open ports on target host</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-8">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">Attack Parameters</h5>
+                            </div>
+                            <div class="card-body">
+                                <form id="attack-form" onsubmit="return false;">
+                                    <input type="hidden" id="attack-type-input" value="ddos">
+                                    
+                                    <div class="form-group">
+                                        <label class="form-label" for="url-input">Target URL / Host</label>
+                                        <input class="form-control" type="text" id="url-input" placeholder="http://127.0.0.1:3080" required>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label class="form-label" for="duration-input">Duration (seconds)</label>
+                                        <input class="form-control" type="number" id="duration-input" min="5" max="300" value="30">
+                                    </div>
+                                    
+                                    <div id="intensity-group" class="form-group">
+                                        <label class="form-label" for="intensity-input">Intensity (Requests per second per thread)</label>
+                                        <input class="form-control" type="number" id="intensity-input" min="1" max="100" value="5">
+                                    </div>
+
+                                    <div id="threads-group" class="form-group">
+                                        <label class="form-label" for="threads-input">Concurrent Threads</label>
+                                        <input class="form-control" type="number" id="threads-input" min="1" max="50" value="10">
+                                    </div>
+
+                                    <!-- Brute Force Fields -->
+                                    <div id="brute-fields" style="display:none;">
+                                        <div class="form-group">
+                                            <label class="form-label" for="username-input">Brute Force Username</label>
+                                            <input class="form-control" type="text" id="username-input" value="admin">
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label" for="wordlist-input">Custom Wordlist File Path (Optional)</label>
+                                            <input class="form-control" type="text" id="wordlist-input" placeholder="C:\path	o\passwords.txt">
+                                        </div>
+                                    </div>
+
+                                    <!-- Port Scan Fields -->
+                                    <div id="port-fields" style="display:none;">
+                                        <div class="form-group">
+                                            <label class="form-label" for="port-input">Target Specific Port (Optional - defaults to full scan)</label>
+                                            <input class="form-control" type="number" id="port-input" min="1" max="65535" placeholder="e.g. 80">
+                                        </div>
+                                    </div>
+
+                                    <div class="d-flex gap-3 mt-4" style="gap: 15px;">
+                                        <button class="btn btn-primary" id="start-attack">
+                                            <i class="fas fa-play"></i> Start Attack
+                                        </button>
+                                        <button class="btn btn-danger" id="stop-attack" disabled>
+                                            <i class="fas fa-stop"></i> Stop Attack
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Vulnerabilities Page -->
+            <div id="vulnerabilities-page" class="page-content">
+                <h2 class="mb-4">Detected Vulnerabilities</h2>
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Real-time Findings</h5>
+                    </div>
+                    <div class="card-body" id="vulnerabilities-container">
+                        <p class="text-secondary text-center py-4">No vulnerabilities discovered yet.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History Page -->
+            <div id="history-page" class="page-content">
+                <h2 class="mb-4">Attack History</h2>
+                <div id="attack-history-container">
+                    <p class="text-secondary text-center py-4">No previous test runs.</p>
+                </div>
+            </div>
+
+            <!-- Settings Page -->
+            <div id="settings-page" class="page-content">
+                <h2 class="mb-4">System Settings</h2>
+                <div class="card mb-4" style="margin-bottom: 20px;">
+                    <div class="card-header">
+                        <h5 class="mb-0">Hugging Face Space Connection</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label class="form-label" for="backend-url-input">Hugging Face Space Backend URL / Host</label>
+                            <input class="form-control" type="text" id="backend-url-input" placeholder="e.g. username-space.hf.space" style="margin-bottom: 12px; display: block; width: 100%;">
+                            <p class="text-secondary" style="font-size: 0.85rem; margin-top: 5px; margin-bottom: 15px;">
+                                Leave blank to automatically use the current browser domain (default for local deployment). If using a remote Hugging Face Space backend, enter the Space domain (e.g. <code>username-space.hf.space</code>).
+                            </p>
+                            <button class="btn btn-primary" id="btn-save-backend">
+                                <i class="fas fa-save"></i> Save & Reconnect
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Testing Suite Control</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <p class="mb-4">Reset all recorded state, metrics charts, logs, and vulnerability databases.</p>
+                            <button class="btn btn-danger" id="btn-reset-all">
+                                <i class="fas fa-arrows-rotate"></i> Reset All Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
