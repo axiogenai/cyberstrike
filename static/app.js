@@ -1,5 +1,5 @@
 // Global variables
-const DEFAULT_BACKEND_HOST = 'adityax26-cyberstrike-backend.hf.space';
+let BACKEND_HOST = '';
 let ws = null;
 let currentAttackId = null;
 let attackHistory = [];
@@ -50,8 +50,8 @@ if (backendUrlInput) {
 // Backend connection
 function getBackendUrls() {
     return {
-        ws: `wss://${DEFAULT_BACKEND_HOST}/ws`,
-        http: `https://${DEFAULT_BACKEND_HOST}`
+        ws: `wss://${BACKEND_HOST}/ws`,
+        http: `https://${BACKEND_HOST}`
     };
 }
 
@@ -507,7 +507,30 @@ async function fetchStatus() {
     }
 }
 
-// Boot UI
-initCharts();
-initWebSocket();
-fetchStatus();
+// Boot UI — fetch backend URL from env, then initialize
+async function boot() {
+    try {
+        const res = await fetch('/api/config');
+        const config = await res.json();
+        if (config.backendHost) {
+            BACKEND_HOST = config.backendHost;
+        }
+    } catch (err) {
+        console.warn('Could not fetch /api/config, using fallback.');
+    }
+
+    // Allow manual override from Settings page localStorage
+    const saved = localStorage.getItem('testing_backend_host');
+    if (saved) BACKEND_HOST = saved;
+
+    if (!BACKEND_HOST) {
+        console.error('No backend host configured.');
+        addLogEntry('No backend host configured. Go to Settings to set one.', 'error');
+        return;
+    }
+
+    initCharts();
+    initWebSocket();
+    fetchStatus();
+}
+boot();
