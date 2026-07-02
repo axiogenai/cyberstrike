@@ -1,4 +1,5 @@
 // Global variables
+const DEFAULT_BACKEND_HOST = 'adityax26-cyberstrike-backend.hf.space';
 let ws = null;
 let currentAttackId = null;
 let attackHistory = [];
@@ -49,25 +50,26 @@ if (backendUrlInput) {
 // Get Dynamic Backend URLs (supporting local & Hugging Face remote)
 function getBackendUrls() {
     const savedHost = localStorage.getItem('testing_backend_host');
+    const host = window.location.host || '';
+    const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+
+    // Priority: 1) localStorage override, 2) same-origin if local, 3) default HF backend
+    let backendHost;
     if (savedHost) {
-        const cleanedHost = savedHost.replace(/^(https?:\/\/|wss?:\/\/)/i, '').replace(/\/$/, '');
-        const isSecure = cleanedHost.includes('.hf.space') || window.location.protocol === 'https:';
-        return {
-            ws: `${isSecure ? 'wss:' : 'ws:'}//${cleanedHost}/ws`,
-            http: `${isSecure ? 'https:' : 'http:'}//${cleanedHost}`
-        };
+        backendHost = savedHost.replace(/^(https?:\/\/|wss?:\/\/)/i, '').replace(/\/$/, '');
+    } else if (isLocal) {
+        backendHost = host;
+    } else if (window.location.protocol === 'file:') {
+        backendHost = '127.0.0.1:8000';
+    } else {
+        // Deployed remotely (e.g. Vercel) — auto-connect to HF Space backend
+        backendHost = DEFAULT_BACKEND_HOST;
     }
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const httpProtocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-    if (window.location.protocol === 'file:') {
-        return {
-            ws: 'ws://127.0.0.1:8000/ws',
-            http: 'http://127.0.0.1:8000'
-        };
-    }
+
+    const isSecure = backendHost.includes('.hf.space') || window.location.protocol === 'https:';
     return {
-        ws: `${wsProtocol}//${window.location.host}/ws`,
-        http: `${httpProtocol}//${window.location.host}`
+        ws: `${isSecure ? 'wss:' : 'ws:'}//${backendHost}/ws`,
+        http: `${isSecure ? 'https:' : 'http:'}//${backendHost}`
     };
 }
 
