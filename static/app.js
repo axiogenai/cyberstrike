@@ -49,9 +49,10 @@ if (backendUrlInput) {
 
 // Backend connection
 function getBackendUrls() {
+    const isSecure = BACKEND_HOST.includes('.hf.space') || window.location.protocol === 'https:';
     return {
-        ws: `wss://${BACKEND_HOST}/ws`,
-        http: `https://${BACKEND_HOST}`
+        ws: `${isSecure ? 'wss:' : 'ws:'}//${BACKEND_HOST}/ws`,
+        http: `${isSecure ? 'https:' : 'http:'}//${BACKEND_HOST}`
     };
 }
 
@@ -509,19 +510,30 @@ async function fetchStatus() {
 
 // Boot UI — fetch backend URL from env, then initialize
 async function boot() {
-    try {
-        const res = await fetch('/api/config');
-        const config = await res.json();
-        if (config.backendHost) {
-            BACKEND_HOST = config.backendHost;
+    const host = window.location.host || '';
+    const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+
+    if (isLocal) {
+        BACKEND_HOST = host;
+    } else {
+        try {
+            const res = await fetch('/api/config');
+            const config = await res.json();
+            if (config.backendHost) {
+                BACKEND_HOST = config.backendHost;
+            }
+        } catch (err) {
+            console.warn('Could not fetch /api/config, using fallback.');
         }
-    } catch (err) {
-        console.warn('Could not fetch /api/config, using fallback.');
     }
 
     // Allow manual override from Settings page localStorage
     const saved = localStorage.getItem('testing_backend_host');
     if (saved) BACKEND_HOST = saved;
+
+    if (!BACKEND_HOST && window.location.protocol === 'file:') {
+        BACKEND_HOST = '127.0.0.1:8000';
+    }
 
     if (!BACKEND_HOST) {
         console.error('No backend host configured.');
