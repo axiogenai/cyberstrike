@@ -1,361 +1,252 @@
-// Global variables
+/* ================================================================
+   CyberStrike Suite — app.js
+   Clean rewrite matched exactly to index.html DOM structure.
+   ================================================================ */
+
+'use strict';
+
+// ── State ─────────────────────────────────────────────────────────
 let BACKEND_HOST = '';
 let ws = null;
 let currentAttackId = null;
-let attackHistory = [];
 let metricsData = {
     total_requests: 0,
     successful_requests: 0,
     failed_requests: 0,
-    response_times: [],
-    vulnerabilities_found: []
+    response_times: []
 };
 
-// DOM elements
-const attackForm = document.getElementById('attack-form');
-// Support both old (.attack-option) and new (.atk-item) selectors
-const attackOptions = document.querySelectorAll('.attack-option, .atk-item');
-const startAttackBtn = document.getElementById('start-attack');
-const stopAttackBtn = document.getElementById('stop-attack');
-const statusIndicator = document.getElementById('status-indicator');
-const statusText = document.getElementById('status-text');
-const logContainer = document.getElementById('log-container');
-const totalRequestsEl = document.getElementById('total-requests');
-const successfulRequestsEl = document.getElementById('successful-requests');
-const failedRequestsEl = document.getElementById('failed-requests');
-const vulnerabilitiesContainer = document.getElementById('vulnerabilities-container');
-const attackHistoryContainer = document.getElementById('attack-history-container');
-const responseTimeChartEl = document.getElementById('response-time-chart');
-const requestRateChartEl = document.getElementById('request-rate-chart');
-
-// Navigation — supports both .nav-link (legacy) and .slink (new design)
-const navLinks = document.querySelectorAll('.nav-link, .slink');
-// Pages — supports both .page-content (legacy) and .page (new design)
-const pages = document.querySelectorAll('.page-content, .page');
-
-// Form dynamic fields
-const attackTypeInput = document.getElementById('attack-type-input');
-const bruteFields = document.getElementById('brute-fields');
-const portFields = document.getElementById('port-fields');
-const intensityGroup = document.getElementById('intensity-group');
-const threadsGroup = document.getElementById('threads-group');
-
-// Backend Host URL Settings elements
-const backendUrlInput = document.getElementById('backend-url-input');
-const saveBackendBtn = document.getElementById('btn-save-backend');
-
-// Initialize settings input from localStorage
-if (backendUrlInput) {
-    backendUrlInput.value = localStorage.getItem('testing_backend_host') || '';
+// ── Helper: get backend URLs ───────────────────────────────────────
+function getBackendUrls() {
+    const secure = BACKEND_HOST.includes('.hf.space') || location.protocol === 'https:';
+    return {
+        http: `${secure ? 'https' : 'http'}://${BACKEND_HOST}`,
+        ws:   `${secure ? 'wss'   : 'ws'  }://${BACKEND_HOST}/ws`
+    };
 }
 
-// Strip protocol/path from any URL — always extract just the app hostname
+// ── Helper: sanitize host input ────────────────────────────────────
 function sanitizeHost(raw) {
     if (!raw) return '';
     try {
-        const str = raw.trim();
-
-        // Special case: huggingface.co/spaces/user/spacename → user-spacename.hf.space
-        const hfMatch = str.match(/huggingface\.co\/spaces\/([^\/\s]+)\/([^\/\s\?#]+)/i);
-        if (hfMatch) {
-            const user  = hfMatch[1];
-            const space = hfMatch[2].toLowerCase().replace(/_/g, '-');
-            return `${user}-${space}.hf.space`;
-        }
-
-        // If it has a protocol, extract hostname only
-        if (str.includes('://')) {
-            return new URL(str).hostname;
-        }
-
-        // Plain host or host/path — keep only the host part
-        return str.split('/')[0].trim();
-    } catch (e) {
-        return raw.split('/')[0].trim();
-    }
+        const s = raw.trim();
+        const hf = s.match(/huggingface\.co\/spaces\/([^\/\s]+)\/([^\/\s?#]+)/i);
+        if (hf) return `${hf[1]}-${hf[2].toLowerCase().replace(/_/g,'-')}.hf.space`;
+        if (s.includes('://')) return new URL(s).hostname;
+        return s.split('/')[0].trim();
+    } catch { return raw.split('/')[0].trim(); }
 }
 
+// ── Helper: safe getElementById ────────────────────────────────────
+const el = (id) => document.getElementById(id);
 
-// Backend connection
-function getBackendUrls() {
-    const isSecure = BACKEND_HOST.includes('.hf.space') || window.location.protocol === 'https:';
-    return {
-        ws: `${isSecure ? 'wss:' : 'ws:'}//${BACKEND_HOST}/ws`,
-        http: `${isSecure ? 'https:' : 'http:'}//${BACKEND_HOST}`
-    };
-}
+// ── Navigation ─────────────────────────────────────────────────────
+function initNav() {
+    const links = document.querySelectorAll('.slink[data-page]');
+    const pages = document.querySelectorAll('.page[id]');
 
-// Navigation management
-navLinks.forEach(link => {
-    link.addEventListener('click', (e) => {
-        e.preventDefault();
-        const pageId = link.getAttribute('data-page');
-        if (!pageId) return;
+    links.forEach(link => {
+        link.addEventListener('click', e => {
+            e.preventDefault();
+            const pageId = link.dataset.page;
 
-        // Keep the URL clean — no #, no query params
-        if (window.history && window.history.replaceState) {
-            window.history.replaceState(null, '', window.location.pathname);
-        }
+            // Clean URL — no hash
+            if (history.replaceState) history.replaceState(null, '', location.pathname);
 
-        // Update active class on all nav links
-        navLinks.forEach(l => {
-            if (l.getAttribute('data-page') === pageId) {
-                l.classList.add('active');
-            } else {
-                l.classList.remove('active');
-            }
-        });
+            // Toggle active link
+            links.forEach(l => l.classList.toggle('active', l.dataset.page === pageId));
 
-        // Show correct page — matches both .page and .page-content
-        pages.forEach(page => {
-            if (page.id === `${pageId}-page`) {
-                page.classList.add('active');
-            } else {
-                page.classList.remove('active');
-            }
+            // Toggle active page
+            pages.forEach(p => p.classList.toggle('active', p.id === `${pageId}-page`));
         });
     });
-});
+}
 
-// Select Attack Type configuration
-attackOptions.forEach(option => {
-    option.addEventListener('click', () => {
-        attackOptions.forEach(opt => opt.classList.remove('selected'));
-        option.classList.add('selected');
-        
-        const attackType = option.getAttribute('data-attack');
-        attackTypeInput.value = attackType;
-        
-        // Toggle parameter fields depending on selection
-        bruteFields.style.display = 'none';
-        portFields.style.display = 'none';
-        intensityGroup.style.display = 'block';
-        threadsGroup.style.display = 'block';
-        
-        if (attackType === 'brute') {
-            bruteFields.style.display = 'block';
-        } else if (attackType === 'port') {
-            portFields.style.display = 'block';
-            intensityGroup.style.display = 'block';
-            threadsGroup.style.display = 'none';
-        }
+// ── Attack type selector ───────────────────────────────────────────
+function initAttackSelector() {
+    const items = document.querySelectorAll('.atk-item[data-attack]');
+    const typeInput  = el('attack-type-input');
+    const bruteBox   = el('brute-fields');
+    const portBox    = el('port-fields');
+    const intGrp     = el('intensity-group');
+    const thrdGrp    = el('threads-group');
+
+    items.forEach(item => {
+        item.addEventListener('click', () => {
+            items.forEach(i => i.classList.remove('selected'));
+            item.classList.add('selected');
+
+            const t = item.dataset.attack;
+            if (typeInput) typeInput.value = t;
+
+            if (bruteBox)  bruteBox.style.display  = t === 'brute' ? 'block' : 'none';
+            if (portBox)   portBox.style.display    = t === 'port'  ? 'block' : 'none';
+            if (intGrp)    intGrp.style.display     = t === 'port'  ? 'none'  : 'block';
+            if (thrdGrp)   thrdGrp.style.display    = t === 'port'  ? 'none'  : 'block';
+        });
     });
-});
-
-// Initialize WebSocket connection
-function initWebSocket() {
-    const urls = getBackendUrls();
-    ws = new WebSocket(urls.ws);
-    
-    ws.onopen = () => {
-        console.log('WebSocket connection established');
-        addLogEntry('Connected to testing suite server.', 'info');
-    };
-    
-    ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        handleWebSocketMessage(data);
-    };
-    
-    ws.onclose = () => {
-        console.log('WebSocket connection closed');
-        addLogEntry('Disconnected from testing server. Reconnecting...', 'warning');
-        setTimeout(initWebSocket, 3000);
-    };
-    
-    ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        addLogEntry('Connection error encountered.', 'error');
-    };
 }
 
-// Handle WebSocket messages
-function handleWebSocketMessage(data) {
-    switch (data.type) {
-        case 'metrics':
-            updateMetrics(data.data);
-            break;
-        case 'vulnerability':
-            addVulnerability(data.data);
-            break;
-        case 'attack_status':
-            updateAttackStatus(data.data);
-            break;
-        case 'log':
-            addLogEntry(data.message, data.level);
-            break;
-    }
+// ── Log helpers ────────────────────────────────────────────────────
+function addLog(msg, level = 'info') {
+    const box = el('log-container');
+    if (!box) return;
+    const d = document.createElement('div');
+    d.className = `log-line log-${level}`;
+    d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    box.appendChild(d);
+    box.scrollTop = box.scrollHeight;
+    while (box.children.length > 150) box.removeChild(box.firstChild);
 }
 
-// Update metrics
-function updateMetrics(data) {
-    metricsData.total_requests = data.total_requests;
-    metricsData.successful_requests = data.successful_requests;
-    metricsData.failed_requests = data.failed_requests;
-    
-    if (data.response_time !== undefined) {
-        metricsData.response_times.push(data.response_time * 1000); // convert to ms
-        if (metricsData.response_times.length > 50) {
-            metricsData.response_times.shift();
-        }
+// ── Metrics update ─────────────────────────────────────────────────
+function updateStats(data) {
+    if (data.total_requests      != null) metricsData.total_requests      = data.total_requests;
+    if (data.successful_requests != null) metricsData.successful_requests = data.successful_requests;
+    if (data.failed_requests     != null) metricsData.failed_requests     = data.failed_requests;
+
+    if (data.response_time != null) {
+        metricsData.response_times.push(data.response_time * 1000);
+        if (metricsData.response_times.length > 60) metricsData.response_times.shift();
     }
-    
-    // Update UI numbers
-    totalRequestsEl.textContent = metricsData.total_requests;
-    successfulRequestsEl.textContent = metricsData.successful_requests;
-    failedRequestsEl.textContent = metricsData.failed_requests;
-    
+
+    const tr = el('total-requests');
+    const sr = el('successful-requests');
+    const fr = el('failed-requests');
+    if (tr) tr.textContent = metricsData.total_requests;
+    if (sr) sr.textContent = metricsData.successful_requests;
+    if (fr) fr.textContent = metricsData.failed_requests;
+
     updateCharts();
 }
 
-// Add vulnerability to layout
-function addVulnerability(vulnerability) {
-    // Check if placeholder is present and remove it
-    if (vulnerabilitiesContainer.querySelector('p.text-center')) {
-        vulnerabilitiesContainer.innerHTML = '';
-    }
-
-    metricsData.vulnerabilities_found.push(vulnerability);
-    
-    const vulnEl = document.createElement('div');
-    vulnEl.className = 'vulnerability-item';
-    vulnEl.innerHTML = `
-        <h5><i class="fas fa-triangle-exclamation"></i> ${vulnerability.type}</h5>
-        <p><strong>URL/Target:</strong> ${vulnerability.url}</p>
-        <p><strong>Payload:</strong> <code>${vulnerability.payload}</code></p>
-        <p><strong>Time:</strong> ${new Date(vulnerability.timestamp).toLocaleString()}</p>
-    `;
-    
-    vulnerabilitiesContainer.insertBefore(vulnEl, vulnerabilitiesContainer.firstChild);
-    addLogEntry(`Vulnerability recorded: ${vulnerability.type} at ${vulnerability.url}`, 'error');
+// ── Status dot ─────────────────────────────────────────────────────
+function setStatus(state, label) {
+    const dot  = el('status-indicator');
+    const text = el('status-text');
+    if (dot)  dot.className  = `status-dot ${state}`;
+    if (text) text.textContent = label;
 }
 
-// Update attack running states — works with both old .status-indicator and new .status-dot
-function updateAttackStatus(status) {
-    if (status.running) {
-        // New design uses status-dot class + ready/running/error modifiers
-        statusIndicator.className = 'status-dot running';
-        statusText.textContent = status.attack_type ? `Running: ${status.attack_type.toUpperCase()}` : 'Running...';
-        if (startAttackBtn) startAttackBtn.disabled = true;
-        if (stopAttackBtn) stopAttackBtn.disabled = false;
-    } else {
-        statusIndicator.className = 'status-dot ready';
-        statusText.textContent = 'Ready';
-        if (startAttackBtn) startAttackBtn.disabled = false;
-        if (stopAttackBtn) stopAttackBtn.disabled = true;
+// ── Attack status ──────────────────────────────────────────────────
+function handleAttackStatus(s) {
+    const startBtn = el('start-attack');
+    const stopBtn  = el('stop-attack');
 
-        if (status.completed) {
-            const type = status.attack_type ? status.attack_type.toUpperCase() : 'TEST';
-            addLogEntry(`Completed: ${type} — ${status.total_requests || 0} requests sent.`, 'success');
-            addToAttackHistory(status);
+    if (s.running) {
+        setStatus('running', s.attack_type ? `Running: ${s.attack_type.toUpperCase()}` : 'Running...');
+        if (startBtn) startBtn.disabled = true;
+        if (stopBtn)  stopBtn.disabled  = false;
+    } else {
+        setStatus('ready', 'Ready');
+        if (startBtn) startBtn.disabled = false;
+        if (stopBtn)  stopBtn.disabled  = true;
+        if (s.completed) {
+            addLog(`Completed: ${(s.attack_type||'').toUpperCase()} - ${s.total_requests||0} requests`, 'success');
+            addHistoryEntry(s);
         }
     }
 }
 
-// Add logs to scroll container
-function addLogEntry(message, level = 'info') {
-    const logEntry = document.createElement('div');
-    logEntry.className = `log-entry log-${level}`;
-    
-    const timestamp = new Date().toLocaleTimeString();
-    logEntry.textContent = `[${timestamp}] ${message}`;
-    
-    logContainer.appendChild(logEntry);
-    logContainer.scrollTop = logContainer.scrollHeight;
-    
-    while (logContainer.children.length > 100) {
-        logContainer.removeChild(logContainer.firstChild);
-    }
+// ── Vulnerability card ─────────────────────────────────────────────
+function addVuln(v) {
+    const box = el('vulnerabilities-container');
+    if (!box) return;
+    const empty = box.querySelector('.empty-state');
+    if (empty) empty.remove();
+
+    const d = document.createElement('div');
+    d.className = 'vuln-item';
+    d.innerHTML = `
+        <h5><i class="fas fa-triangle-exclamation"></i> ${v.type || 'Unknown'}</h5>
+        <p><strong>URL:</strong> ${v.url || '-'}</p>
+        <p><strong>Payload:</strong> <code>${v.payload || '-'}</code></p>
+        ${v.severity ? `<p><strong>Severity:</strong> ${v.severity}</p>` : ''}
+        ${v.evidence ? `<p><strong>Evidence:</strong> ${v.evidence}</p>` : ''}
+    `;
+    box.insertBefore(d, box.firstChild);
+    addLog(`Vulnerability found: ${v.type} @ ${v.url}`, 'error');
 }
 
-// Render history card
-function addToAttackHistory(attack) {
-    if (attackHistoryContainer.querySelector('p.text-center')) {
-        attackHistoryContainer.innerHTML = '';
-    }
+// ── History entry ──────────────────────────────────────────────────
+function addHistoryEntry(a) {
+    const box = el('attack-history-container');
+    if (!box) return;
+    // Remove empty placeholder
+    const empCard = box.querySelector('.glass-card');
+    if (empCard && empCard.querySelector('.empty-state')) empCard.remove();
 
-    attackHistory.push(attack);
-    
-    const historyItem = document.createElement('div');
-    historyItem.className = 'card';
-    historyItem.innerHTML = `
-        <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h5 class="mb-1 text-primary">${attack.attack_type.toUpperCase()} Attack</h5>
-                    <p class="text-secondary mb-1"><strong>Target:</strong> ${attack.url}</p>
-                    <p class="text-secondary mb-0"><strong>Time:</strong> ${new Date(attack.timestamp).toLocaleString()}</p>
-                </div>
-                <div class="text-right" style="text-align: right;">
-                    <div style="font-size: 1.5rem; font-weight:700;">${attack.total_requests}</div>
-                    <div class="text-secondary">Requests sent</div>
-                </div>
+    const d = document.createElement('div');
+    d.className = 'glass-card';
+    d.style.marginBottom = '10px';
+    d.innerHTML = `
+        <div class="card-body" style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+                <div style="font-weight:700;font-size:.9rem">${(a.attack_type||'test').toUpperCase()}</div>
+                <div style="font-size:.75rem;color:var(--t2);margin-top:2px">${a.url||''}</div>
+                <div style="font-size:.7rem;color:var(--t3);margin-top:2px">${a.timestamp ? new Date(a.timestamp).toLocaleString() : ''}</div>
+            </div>
+            <div style="text-align:right">
+                <div style="font-family:var(--mono);font-size:1.4rem;font-weight:700">${a.total_requests||0}</div>
+                <div style="font-size:.7rem;color:var(--t3)">requests</div>
             </div>
         </div>
     `;
-    
-    attackHistoryContainer.insertBefore(historyItem, attackHistoryContainer.firstChild);
+    box.insertBefore(d, box.firstChild);
 }
 
-// Note: Chart.defaults are set inside initCharts() after Chart.js is confirmed loaded.
-
+// ── Charts ─────────────────────────────────────────────────────────
 const CHART_OPTS = {
     responsive: true,
     maintainAspectRatio: false,
-    animation: { duration: 300 },
+    animation: { duration: 250 },
     scales: {
         y: {
             beginAtZero: true,
-            grid: { color: 'rgba(255,255,255,0.06)' },
-            ticks: { color: 'rgba(255,255,255,0.4)', font: { family: 'JetBrains Mono', size: 10 } }
+            grid:  { color: 'rgba(255,255,255,0.05)' },
+            ticks: { color: 'rgba(255,255,255,0.35)', font: { family: 'JetBrains Mono', size: 10 } }
         },
         x: {
-            grid: { display: false },
-            ticks: { color: 'rgba(255,255,255,0.3)', font: { family: 'JetBrains Mono', size: 9 } }
+            grid:  { display: false },
+            ticks: { color: 'rgba(255,255,255,0.25)', font: { family: 'JetBrains Mono', size: 9 } }
         }
     },
     plugins: { legend: { display: false } }
 };
 
-// Initialize ChartJS
 function initCharts() {
-    if (!responseTimeChartEl || !requestRateChartEl) return;
-    if (typeof Chart === 'undefined') return;
+    const rtCanvas = el('response-time-chart');
+    const rrCanvas = el('request-rate-chart');
+    if (!rtCanvas || !rrCanvas || typeof Chart === 'undefined') return;
 
-    // Monochrome defaults — set here, after Chart.js is loaded
-    Chart.defaults.color = 'rgba(255,255,255,0.4)';
-    Chart.defaults.borderColor = 'rgba(255,255,255,0.07)';
+    Chart.defaults.color       = 'rgba(255,255,255,0.35)';
+    Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
 
-    const responseTimeCtx = responseTimeChartEl.getContext('2d');
-    window.responseTimeChart = new Chart(responseTimeCtx, {
+    window.responseTimeChart = new Chart(rtCanvas.getContext('2d'), {
         type: 'line',
         data: {
             labels: [],
             datasets: [{
-                label: 'Response Time (ms)',
                 data: [],
-                backgroundColor: 'rgba(255,255,255,0.06)',
-                borderColor: 'rgba(255,255,255,0.7)',
+                backgroundColor: 'rgba(255,255,255,0.05)',
+                borderColor:     'rgba(255,255,255,0.65)',
                 borderWidth: 1.5,
                 tension: 0.4,
                 fill: true,
-                pointRadius: 2,
-                pointBackgroundColor: 'rgba(255,255,255,0.8)'
+                pointRadius: 2
             }]
         },
         options: { ...CHART_OPTS }
     });
 
-    const requestRateCtx = requestRateChartEl.getContext('2d');
-    window.requestRateChart = new Chart(requestRateCtx, {
+    window.requestRateChart = new Chart(rrCanvas.getContext('2d'), {
         type: 'bar',
         data: {
             labels: ['Successful', 'Failed'],
             datasets: [{
-                label: 'Requests',
                 data: [0, 0],
-                backgroundColor: ['rgba(255,255,255,0.15)', 'rgba(255,255,255,0.05)'],
-                borderColor:     ['rgba(255,255,255,0.6)',  'rgba(255,255,255,0.2)'],
+                backgroundColor: ['rgba(255,255,255,0.18)', 'rgba(255,255,255,0.05)'],
+                borderColor:     ['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.18)'],
                 borderWidth: 1,
                 borderRadius: 4
             }]
@@ -364,216 +255,317 @@ function initCharts() {
     });
 }
 
-// Update ChartJS data dynamically
 function updateCharts() {
     if (window.responseTimeChart) {
-        const labels = metricsData.response_times.map((_, i) => i.toString());
-        window.responseTimeChart.data.labels = labels;
-        window.responseTimeChart.data.datasets[0].data = metricsData.response_times;
-        window.responseTimeChart.update('none');
+        const rt = window.responseTimeChart;
+        rt.data.labels            = metricsData.response_times.map((_, i) => i);
+        rt.data.datasets[0].data  = metricsData.response_times;
+        rt.update('none');
     }
-    
     if (window.requestRateChart) {
-        window.requestRateChart.data.datasets[0].data = [
-            metricsData.successful_requests,
-            metricsData.failed_requests
-        ];
-        window.requestRateChart.update('none');
+        const rr = window.requestRateChart;
+        rr.data.datasets[0].data = [metricsData.successful_requests, metricsData.failed_requests];
+        rr.update('none');
     }
 }
 
-// Trigger start attack API
+// ── WebSocket ──────────────────────────────────────────────────────
+function connectWS() {
+    if (!BACKEND_HOST) return;
+    const { ws: wsUrl } = getBackendUrls();
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen  = () => addLog('Connected to backend.', 'success');
+    ws.onclose = () => { addLog('Disconnected - retrying in 4s...', 'warning'); setTimeout(connectWS, 4000); };
+    ws.onerror = () => addLog('WebSocket error.', 'error');
+
+    ws.onmessage = ({ data }) => {
+        try {
+            const msg = JSON.parse(data);
+            switch (msg.type) {
+                case 'metrics':       updateStats(msg.data);         break;
+                case 'vulnerability': addVuln(msg.data);             break;
+                case 'attack_status': handleAttackStatus(msg.data);  break;
+                case 'log':           addLog(msg.message, msg.level); break;
+            }
+        } catch (e) { /* ignore malformed frames */ }
+    };
+}
+
+// ── API: fetch status ──────────────────────────────────────────────
+async function fetchStatus() {
+    if (!BACKEND_HOST) return;
+    try {
+        const res  = await fetch(`${getBackendUrls().http}/api/status`);
+        const data = await res.json();
+
+        handleAttackStatus({ running: data.attacks_running, attack_type: data.current_attacks?.[0] });
+        updateStats({
+            total_requests:      data.stats?.total_requests      || 0,
+            successful_requests: data.stats?.successful_requests || 0,
+            failed_requests:     data.stats?.failed_requests     || 0
+        });
+
+        if (data.vulnerabilities && data.vulnerabilities.length) data.vulnerabilities.forEach(addVuln);
+        if (data.history && data.history.length) data.history.forEach(addHistoryEntry);
+    } catch (e) { /* backend not ready yet */ }
+}
+
+// ── API: start attack ──────────────────────────────────────────────
 async function startAttack() {
-    const urlInput = document.getElementById('url-input');
-    if (!urlInput.value) {
-        alert('Please specify a target URL/Host.');
-        return;
-    }
-    
+    const urlVal = el('url-input') ? el('url-input').value.trim() : '';
+    if (!urlVal)        { alert('Enter a target URL first.'); return; }
+    if (!BACKEND_HOST)  { alert('No backend configured - go to Settings.'); return; }
+
     const payload = {
-        url: urlInput.value.trim(),
-        attack_type: attackTypeInput.value,
-        duration: parseInt(document.getElementById('duration-input').value),
-        intensity: parseInt(document.getElementById('intensity-input').value),
-        threads: parseInt(document.getElementById('threads-input').value),
-        target_port: document.getElementById('port-input').value ? parseInt(document.getElementById('port-input').value) : null,
-        username: document.getElementById('username-input').value.trim() || null,
-        wordlist: document.getElementById('wordlist-input').value.trim() || null
+        url:         urlVal,
+        attack_type: el('attack-type-input') ? el('attack-type-input').value : 'ddos',
+        duration:    parseInt(el('duration-input')  ? el('duration-input').value  : 30),
+        intensity:   parseInt(el('intensity-input') ? el('intensity-input').value : 5),
+        threads:     parseInt(el('threads-input')   ? el('threads-input').value   : 10),
+        target_port: el('port-input') && el('port-input').value ? parseInt(el('port-input').value) : null,
+        username:    el('username-input') ? el('username-input').value.trim() || null : null,
+        wordlist:    el('wordlist-input') ? el('wordlist-input').value.trim() || null : null
     };
 
-    startAttackBtn.disabled = true;
-    
+    const startBtn = el('start-attack');
+    if (startBtn) startBtn.disabled = true;
+
     try {
-        const urls = getBackendUrls();
-        const response = await fetch(`${urls.http}/api/attack/start`, {
-            method: 'POST',
+        const res    = await fetch(`${getBackendUrls().http}/api/attack/start`, {
+            method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body:    JSON.stringify(payload)
         });
-        const result = await response.json();
-        
-        if (response.ok && result.success) {
+        const result = await res.json();
+
+        if (res.ok && result.success) {
             currentAttackId = result.attack_id;
-            addLogEntry(`Attack request authorized. Test ID: ${currentAttackId}`, 'info');
-            // Navigate to Dashboard to watch stats
-            document.querySelector('[data-page="dashboard"]').click();
+            addLog(`Attack launched - ID: ${currentAttackId}`, 'info');
+            document.querySelector('.slink[data-page="dashboard"]').click();
         } else {
-            alert(result.detail || result.message || 'Failed to start attack.');
-            startAttackBtn.disabled = false;
+            alert(result.detail || result.message || 'Failed to start.');
+            if (startBtn) startBtn.disabled = false;
         }
     } catch (err) {
-        console.error('Error starting attack:', err);
-        addLogEntry('Connection to API failed.', 'error');
-        startAttackBtn.disabled = false;
+        addLog('API error: ' + err.message, 'error');
+        if (startBtn) startBtn.disabled = false;
     }
 }
 
-// Trigger stop attack API
+// ── API: stop attack ───────────────────────────────────────────────
 async function stopAttack() {
+    if (!BACKEND_HOST) return;
     try {
-        const urls = getBackendUrls();
-        const response = await fetch(`${urls.http}/api/attack/stop`, { method: 'POST' });
-        const result = await response.json();
-        if (result.success) {
-            addLogEntry('Termination command sent successfully.', 'info');
-        }
-    } catch (err) {
-        console.error('Error stopping attack:', err);
-    }
+        const res = await fetch(`${getBackendUrls().http}/api/attack/stop`, { method: 'POST' });
+        const r   = await res.json();
+        if (r.success) addLog('Stop command sent.', 'info');
+    } catch (err) { addLog('Stop error: ' + err.message, 'error'); }
 }
 
-// Clear UI logs — null-guarded
-const clearLogBtn = document.getElementById('clear-log');
-if (clearLogBtn) {
-    clearLogBtn.addEventListener('click', () => {
-        if (logContainer) logContainer.innerHTML = '';
-    });
-}
-
-// Full state reset
-async function resetAllData() {
-    if (!confirm('Are you sure you want to reset all test statistics, history logs, and graphs?')) {
-        return;
-    }
+// ── API: reset all ─────────────────────────────────────────────────
+async function resetAll() {
+    if (!confirm('Reset all stats, logs and findings?')) return;
     try {
-        const urls = getBackendUrls();
-        const response = await fetch(`${urls.http}/api/logs/clear`, { method: 'POST' });
-        if (response.ok) {
-            metricsData = {
-                total_requests: 0,
-                successful_requests: 0,
-                failed_requests: 0,
-                response_times: [],
-                vulnerabilities_found: []
-            };
-            attackHistory = [];
-            totalRequestsEl.textContent = '0';
-            successfulRequestsEl.textContent = '0';
-            failedRequestsEl.textContent = '0';
-            vulnerabilitiesContainer.innerHTML = '<p class="text-secondary text-center py-4">No vulnerabilities discovered yet.</p>';
-            attackHistoryContainer.innerHTML = '<p class="text-secondary text-center py-4">No previous test runs.</p>';
-            updateCharts();
-            alert('Suite statistics reset successfully.');
-        }
-    } catch (err) {
-        console.error('Error resetting database:', err);
+        if (BACKEND_HOST) await fetch(`${getBackendUrls().http}/api/logs/clear`, { method: 'POST' });
+        metricsData = { total_requests: 0, successful_requests: 0, failed_requests: 0, response_times: [] };
+        updateStats(metricsData);
+
+        const vc = el('vulnerabilities-container');
+        if (vc) vc.innerHTML = '<div class="empty-state"><i class="fas fa-shield-check empty-ico"></i><p>No findings yet</p><small>Run a test to discover vulnerabilities</small></div>';
+
+        const hc = el('attack-history-container');
+        if (hc) hc.innerHTML = '<div class="glass-card"><div class="card-body"><div class="empty-state"><i class="fas fa-clock-rotate-left empty-ico"></i><p>No history yet</p><small>Completed tests appear here</small></div></div></div>';
+
+        addLog('All data reset.', 'info');
+    } catch (err) { addLog('Reset error: ' + err.message, 'error'); }
+}
+
+// ── Recon helpers ──────────────────────────────────────────────────
+async function callRecon(endpoint, extra) {
+    extra = extra || {};
+    const outBox = el('recon-output');
+    if (!BACKEND_HOST) {
+        if (outBox) outBox.innerHTML = '<div class="log-line log-error">No backend configured - go to Settings.</div>';
+        return null;
     }
-}
+    const target = el('recon-target') ? el('recon-target').value.trim() : '';
+    if (!target) {
+        if (outBox) outBox.innerHTML = '<div class="log-line log-warning">Enter a target domain first.</div>';
+        return null;
+    }
+    if (outBox) outBox.innerHTML = '<div class="log-line log-info">Running... please wait.</div>';
 
-// Save backend host and trigger reconnect
-if (saveBackendBtn) {
-    saveBackendBtn.addEventListener('click', () => {
-        const val = backendUrlInput.value.trim();
-        if (val) {
-            localStorage.setItem('testing_backend_host', val);
-        } else {
-            localStorage.removeItem('testing_backend_host');
-        }
-        addLogEntry('Backend host saved. Reconnecting...', 'info');
-        if (ws) {
-            ws.close(); // Triggers auto-reconnect with new URLs
-        }
-        fetchStatus();
-    });
-}
-
-// Attach control event listeners — null-guarded so missing elements never crash the script
-if (startAttackBtn) startAttackBtn.addEventListener('click', startAttack);
-if (stopAttackBtn)  stopAttackBtn.addEventListener('click', stopAttack);
-const resetAllBtn = document.getElementById('btn-reset-all');
-if (resetAllBtn) resetAllBtn.addEventListener('click', resetAllData);
-
-// Fetch initial status on load
-async function fetchStatus() {
     try {
-        const urls = getBackendUrls();
-        const response = await fetch(`${urls.http}/api/status`);
-        const data = await response.json();
-        
-        // Sync active state
-        updateAttackStatus({ running: data.attacks_running, attack_type: data.current_attacks[0], completed: false });
-        
-        // Sync UI counts
-        metricsData.total_requests = data.stats.total_requests;
-        metricsData.successful_requests = data.stats.successful_requests;
-        metricsData.failed_requests = data.stats.failed_requests;
-        totalRequestsEl.textContent = metricsData.total_requests;
-        successfulRequestsEl.textContent = metricsData.successful_requests;
-        failedRequestsEl.textContent = metricsData.failed_requests;
-        
-        // Render vulnerabilities
-        if (data.vulnerabilities && data.vulnerabilities.length > 0) {
-            vulnerabilitiesContainer.innerHTML = '';
-            data.vulnerabilities.reverse().forEach(v => addVulnerability(v));
-        }
-        
-        // Render history
-        if (data.history && data.history.length > 0) {
-            attackHistoryContainer.innerHTML = '';
-            data.history.forEach(h => addToAttackHistory(h));
-        }
-        
-        updateCharts();
-    } catch (err) {
-        console.error('Error syncing status:', err);
+        const res = await fetch(`${getBackendUrls().http}/api/recon/${endpoint}`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(Object.assign({ target }, extra))
+        });
+        return await res.json();
+    } catch (e) {
+        if (outBox) outBox.innerHTML = '<div class="log-line log-error">Error: ' + e.message + '</div>';
+        return null;
     }
 }
 
-// Boot UI — fetch backend URL from env, then initialize
-async function boot() {
-    const host = window.location.host || '';
-    const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+function showRecon(data, label) {
+    const active = el('recon-active-tool');
+    if (active) active.textContent = '- ' + label;
+    const box = el('recon-output');
+    if (!box || !data) return;
+    box.innerHTML = '<pre class="recon-pre">' + JSON.stringify(data, null, 2) + '</pre>';
+}
 
-    if (isLocal) {
-        BACKEND_HOST = host;
-    } else {
-        try {
-            const res = await fetch('/api/config');
-            const config = await res.json();
-            if (config.backendHost) {
-                BACKEND_HOST = sanitizeHost(config.backendHost);
+// ── Red Team helpers ───────────────────────────────────────────────
+async function callRedTeam(endpoint, body) {
+    if (!BACKEND_HOST) return { error: 'No backend configured.' };
+    try {
+        const res = await fetch(`${getBackendUrls().http}/api/redteam/${endpoint}`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(body)
+        });
+        return await res.json();
+    } catch (e) { return { error: e.message }; }
+}
+
+function showRT(data, resultId) {
+    const box = el(resultId);
+    if (!box || !data) return;
+    box.innerHTML = '<pre class="recon-pre">' + JSON.stringify(data, null, 2) + '</pre>';
+}
+
+// ── Wire all buttons ───────────────────────────────────────────────
+function wireButtons() {
+    // Attack controls
+    var startBtn = el('start-attack');
+    var stopBtn  = el('stop-attack');
+    var resetBtn = el('btn-reset-all');
+    var clearBtn = el('clear-log');
+    var saveBtn  = el('btn-save-backend');
+
+    if (startBtn) startBtn.onclick = startAttack;
+    if (stopBtn)  stopBtn.onclick  = stopAttack;
+    if (resetBtn) resetBtn.onclick = resetAll;
+    if (clearBtn) clearBtn.onclick = function() { var b = el('log-container'); if (b) b.innerHTML = ''; };
+
+    if (saveBtn) {
+        saveBtn.onclick = function() {
+            var inp = el('backend-url-input');
+            var val = inp ? inp.value.trim() : '';
+            if (val) {
+                localStorage.setItem('testing_backend_host', val);
+                BACKEND_HOST = sanitizeHost(val);
+            } else {
+                localStorage.removeItem('testing_backend_host');
+                BACKEND_HOST = '';
             }
-        } catch (err) {
-            console.warn('Could not fetch /api/config, using fallback.');
-        }
+            addLog('Backend saved. Reconnecting...', 'info');
+            if (ws) ws.close();
+            connectWS();
+            fetchStatus();
+        };
     }
 
-    // Allow manual override from Settings page localStorage
-    const saved = localStorage.getItem('testing_backend_host');
+    // Recon buttons — endpoint : label
+    var reconMap = [
+        ['run-dns',          'dns',          'DNS Lookup'],
+        ['run-whois',        'whois',        'WHOIS'],
+        ['run-ssl',          'ssl',          'SSL/TLS'],
+        ['run-headers',      'headers',      'HTTP Headers'],
+        ['run-fingerprint',  'fingerprint',  'Fingerprint'],
+        ['run-subdomains',   'subdomains',   'Subdomains'],
+        ['run-dorks',        'dorks',        'Google Dorks'],
+        ['run-zonetransfer', 'zonetransfer', 'Zone Transfer'],
+        ['run-waf',          'waf',          'WAF Detection'],
+        ['run-ratelimit',    'ratelimit',    'Rate Limit'],
+        ['run-breaches',     'breaches',     'Breach Check'],
+        ['run-ioc',          'ioc',          'IOC / Threat Intel']
+    ];
+    reconMap.forEach(function(row) {
+        var btn = el(row[0]);
+        if (!btn) return;
+        (function(ep, lbl) {
+            btn.onclick = function() {
+                callRecon(ep).then(function(d) { showRecon(d, lbl); });
+            };
+        })(row[1], row[2]);
+    });
+
+    // Red Team buttons
+    var phishBtn   = el('run-phishing');
+    var persistBtn = el('run-persistence');
+    var privBtn    = el('run-privesc');
+    var latBtn     = el('run-lateral');
+
+    if (phishBtn) phishBtn.onclick = function() {
+        callRedTeam('phishing', {
+            target:  el('phish-target') ? el('phish-target').value : '',
+            options: { brand: el('phish-brand') ? el('phish-brand').value : '', lure: el('phish-lure') ? el('phish-lure').value : '' }
+        }).then(function(d) { showRT(d, 'phishing-result'); });
+    };
+    if (persistBtn) persistBtn.onclick = function() {
+        callRedTeam('persistence', {
+            os_type: el('persist-os') ? el('persist-os').value : 'windows',
+            options: { lhost: el('persist-lhost') ? el('persist-lhost').value : '', lport: el('persist-lport') ? el('persist-lport').value : '4444' }
+        }).then(function(d) { showRT(d, 'persistence-result'); });
+    };
+    if (privBtn) privBtn.onclick = function() {
+        callRedTeam('privesc', { os_type: el('privesc-os') ? el('privesc-os').value : 'windows' })
+            .then(function(d) { showRT(d, 'privesc-result'); });
+    };
+    if (latBtn) latBtn.onclick = function() {
+        callRedTeam('lateral', { options: {
+            target_ip: el('lat-ip')     ? el('lat-ip').value     : '',
+            domain:    el('lat-domain') ? el('lat-domain').value : '',
+            username:  el('lat-user')   ? el('lat-user').value   : '',
+            lhost:     el('lat-lhost')  ? el('lat-lhost').value  : ''
+        }}).then(function(d) { showRT(d, 'lateral-result'); });
+    };
+}
+
+// ── Boot ───────────────────────────────────────────────────────────
+async function boot() {
+    // 1. Try Vercel /api/config
+    try {
+        var res = await fetch('/api/config');
+        var cfg = await res.json();
+        if (cfg.backendHost) BACKEND_HOST = sanitizeHost(cfg.backendHost);
+    } catch (e) { /* no config endpoint */ }
+
+    // 2. localStorage override
+    var saved = localStorage.getItem('testing_backend_host');
     if (saved) BACKEND_HOST = sanitizeHost(saved);
 
-    if (!BACKEND_HOST && window.location.protocol === 'file:') {
-        BACKEND_HOST = '127.0.0.1:8000';
-    }
-
+    // 3. Local dev fallback
     if (!BACKEND_HOST) {
-        console.error('No backend host configured.');
-        addLogEntry('No backend host configured. Go to Settings to set one.', 'error');
-        return;
+        var h = location.host;
+        if (h.indexOf('localhost') !== -1 || h.indexOf('127.0.0.1') !== -1) BACKEND_HOST = h;
     }
 
+    // Init
+    initNav();
+    initAttackSelector();
     initCharts();
-    initWebSocket();
-    fetchStatus();
+    wireButtons();
+
+    // Pre-fill Settings input
+    var bInp = el('backend-url-input');
+    if (bInp && saved) bInp.value = saved;
+
+    if (BACKEND_HOST) {
+        addLog('Backend: ' + BACKEND_HOST, 'info');
+        connectWS();
+        fetchStatus();
+    } else {
+        addLog('No backend configured - go to Settings to set one.', 'warning');
+    }
 }
-boot();
+
+// Run after DOM ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+} else {
+    boot();
+}
