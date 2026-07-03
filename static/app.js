@@ -47,20 +47,32 @@ if (backendUrlInput) {
     backendUrlInput.value = localStorage.getItem('testing_backend_host') || '';
 }
 
-// Strip protocol/path from any URL — always extract just the hostname
+// Strip protocol/path from any URL — always extract just the app hostname
 function sanitizeHost(raw) {
     if (!raw) return '';
     try {
-        // If it has a protocol, parse it as a URL
-        if (raw.includes('://')) {
-            return new URL(raw).hostname;
+        const str = raw.trim();
+
+        // Special case: huggingface.co/spaces/user/spacename → user-spacename.hf.space
+        const hfMatch = str.match(/huggingface\.co\/spaces\/([^\/\s]+)\/([^\/\s\?#]+)/i);
+        if (hfMatch) {
+            const user  = hfMatch[1];
+            const space = hfMatch[2].toLowerCase().replace(/_/g, '-');
+            return `${user}-${space}.hf.space`;
         }
-        // Otherwise strip any trailing path/slash
-        return raw.split('/')[0].trim();
+
+        // If it has a protocol, extract hostname only
+        if (str.includes('://')) {
+            return new URL(str).hostname;
+        }
+
+        // Plain host or host/path — keep only the host part
+        return str.split('/')[0].trim();
     } catch (e) {
         return raw.split('/')[0].trim();
     }
 }
+
 
 // Backend connection
 function getBackendUrls() {
