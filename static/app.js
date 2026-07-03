@@ -395,7 +395,8 @@ async function startAttack() {
         target_port: el('port-input') && el('port-input').value ? parseInt(el('port-input').value) : null,
         username:    el('username-input') ? el('username-input').value.trim() || null : null,
         wordlist:    el('wordlist-input') ? el('wordlist-input').value.trim() || null : null,
-        custom_header_payload: el('header-payload-input') ? el('header-payload-input').value.trim() || null : null
+        custom_header_payload: el('header-payload-input') ? el('header-payload-input').value.trim() || null : null,
+        custom_xss_payload: el('xss-payload-input') ? el('xss-payload-input').value.trim() || null : null
     };
 
     const startBtn = el('start-attack');
