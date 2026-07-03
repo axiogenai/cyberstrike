@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link rel="stylesheet" href="/static/style.css?v=5">
+    <link rel="stylesheet" href="/static/style.css?v=9">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -358,6 +358,14 @@
                                     </div>
                                 </div>
 
+                                <div id="header_inj-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                    <div class="field">
+                                        <label class="flabel">Custom Injection Payload</label>
+                                        <input class="finput" type="text" id="header-payload-input" placeholder="e.g. Set-Cookie: user=admin" value="Set-Cookie: user=admin">
+                                        <span class="hint">Payload will be prepended with CRLF (%0d%0a) automatically.</span>
+                                    </div>
+                                </div>
+
                                 <div class="btn-row">
                                     <button class="btn-primary" id="start-attack"><i class="fas fa-play"></i> Launch</button>
                                     <button class="btn-danger" id="stop-attack" disabled><i class="fas fa-stop"></i> Stop</button>
@@ -582,7 +590,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=9"></script>
+    <script src="/static/app.js?v=10"></script>
 
 </body>
 </html>
