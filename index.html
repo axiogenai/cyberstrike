@@ -7,154 +7,136 @@
     <meta name="description" content="Professional security testing dashboard with real-time metrics, vulnerability detection and attack simulation.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
-    <!-- Animated Background Orbs -->
-    <div class="bg-orbs" aria-hidden="true">
-        <div class="orb orb-1"></div>
-        <div class="orb orb-2"></div>
-        <div class="orb orb-3"></div>
+    <!-- Gradient Mesh Background -->
+    <div class="bg-mesh" aria-hidden="true">
+        <div class="mesh-blob mesh-blob--1"></div>
+        <div class="mesh-blob mesh-blob--2"></div>
+        <div class="mesh-blob mesh-blob--3"></div>
+        <div class="mesh-blob mesh-blob--4"></div>
+        <div class="mesh-blob mesh-blob--5"></div>
     </div>
 
     <!-- Navbar -->
-    <nav class="navbar">
+    <nav class="navbar glass-panel">
         <div class="navbar-brand">
-            <div class="brand-icon">
+            <div class="brand-logo">
                 <i class="fas fa-shield-halved"></i>
             </div>
-            <span class="brand-text">CyberStrike <span class="brand-accent">Suite</span></span>
+            <span class="brand-name">CyberStrike <strong>Suite</strong></span>
         </div>
-        <div class="navbar-nav" role="navigation">
-            <a class="nav-link active" href="#" data-page="dashboard" id="nav-dashboard">
-                <i class="fas fa-chart-line"></i><span>Dashboard</span>
-            </a>
-            <a class="nav-link" href="#" data-page="attacks" id="nav-attacks">
-                <i class="fas fa-crosshairs"></i><span>Attacks</span>
-            </a>
-            <a class="nav-link" href="#" data-page="vulnerabilities" id="nav-vulnerabilities">
-                <i class="fas fa-bug"></i><span>Findings</span>
-            </a>
-            <a class="nav-link" href="#" data-page="history" id="nav-history">
-                <i class="fas fa-clock-rotate-left"></i><span>History</span>
-            </a>
-            <a class="nav-link" href="#" data-page="settings" id="nav-settings">
-                <i class="fas fa-sliders"></i><span>Settings</span>
-            </a>
-        </div>
-        <div class="navbar-status">
-            <span class="status-pill">
-                <span class="status-indicator status-ready" id="status-indicator"></span>
+
+        <ul class="navbar-nav" role="navigation" aria-label="Main navigation">
+            <li><a class="nav-pill active" href="#" data-page="dashboard"><i class="fas fa-chart-line"></i> Dashboard</a></li>
+            <li><a class="nav-pill" href="#" data-page="attacks"><i class="fas fa-crosshairs"></i> Attacks</a></li>
+            <li><a class="nav-pill" href="#" data-page="vulnerabilities"><i class="fas fa-bug"></i> Findings</a></li>
+            <li><a class="nav-pill" href="#" data-page="history"><i class="fas fa-clock-rotate-left"></i> History</a></li>
+            <li><a class="nav-pill" href="#" data-page="settings"><i class="fas fa-sliders"></i> Settings</a></li>
+        </ul>
+
+        <div class="navbar-end">
+            <div class="status-chip">
+                <span class="status-dot status-ready" id="status-indicator"></span>
                 <span id="status-text">Ready</span>
-            </span>
+            </div>
         </div>
     </nav>
 
-    <div class="app-layout">
+    <!-- App Shell -->
+    <div class="app-shell">
+
         <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="sidebar-section-label">Navigation</div>
-            <nav class="sidebar-nav">
-                <a class="nav-link active" href="#" data-page="dashboard">
-                    <span class="nav-icon"><i class="fas fa-chart-line"></i></span>
-                    <span>Dashboard</span>
+        <aside class="sidebar glass-panel">
+            <p class="sidebar-label">Navigation</p>
+            <nav>
+                <a class="sidebar-link active" href="#" data-page="dashboard">
+                    <i class="fas fa-chart-line"></i> Dashboard
                 </a>
-                <a class="nav-link" href="#" data-page="attacks">
-                    <span class="nav-icon"><i class="fas fa-crosshairs"></i></span>
-                    <span>Attack Types</span>
+                <a class="sidebar-link" href="#" data-page="attacks">
+                    <i class="fas fa-crosshairs"></i> Attack Types
                 </a>
-                <a class="nav-link" href="#" data-page="vulnerabilities">
-                    <span class="nav-icon"><i class="fas fa-bug"></i></span>
-                    <span>Findings</span>
+                <a class="sidebar-link" href="#" data-page="vulnerabilities">
+                    <i class="fas fa-bug"></i> Findings
                 </a>
-                <a class="nav-link" href="#" data-page="history">
-                    <span class="nav-icon"><i class="fas fa-clock-rotate-left"></i></span>
-                    <span>History</span>
+                <a class="sidebar-link" href="#" data-page="history">
+                    <i class="fas fa-clock-rotate-left"></i> History
                 </a>
             </nav>
-            <div class="sidebar-section-label" style="margin-top: auto;">System</div>
-            <nav class="sidebar-nav">
-                <a class="nav-link" href="#" data-page="settings">
-                    <span class="nav-icon"><i class="fas fa-sliders"></i></span>
-                    <span>Settings</span>
+            <p class="sidebar-label" style="margin-top:auto">System</p>
+            <nav>
+                <a class="sidebar-link" href="#" data-page="settings">
+                    <i class="fas fa-sliders"></i> Settings
                 </a>
             </nav>
         </aside>
 
-        <!-- Main Content -->
-        <main class="main-content">
+        <!-- Content -->
+        <main class="content-area">
 
-            <!-- ── Dashboard Page ── -->
-            <div id="dashboard-page" class="page-content active">
-                <div class="page-header">
-                    <div>
-                        <h1>Dashboard <span class="page-header-sub">Overview</span></h1>
-                        <p class="page-subtitle">Real-time monitoring and metrics</p>
-                    </div>
-                </div>
+            <!-- ─── Dashboard ─── -->
+            <section id="dashboard-page" class="page-content active">
+                <header class="page-header">
+                    <h1>Dashboard <span class="gradient-text">Overview</span></h1>
+                    <p>Real-time security monitoring</p>
+                </header>
 
-                <!-- Stats Grid -->
-                <div class="stats-grid">
-                    <div class="stat-card stat-card--blue">
-                        <div class="stat-card__icon"><i class="fas fa-paper-plane"></i></div>
-                        <div class="stat-card__body">
-                            <div class="stat-card__label">Total Requests</div>
-                            <div class="stat-card__value" id="total-requests">0</div>
+                <!-- Stats -->
+                <div class="stats-row">
+                    <div class="stat-glass stat-glass--blue">
+                        <div class="stat-icon"><i class="fas fa-paper-plane"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Total Requests</span>
+                            <span class="stat-value" id="total-requests">0</span>
                         </div>
-                        <div class="stat-card__glow"></div>
                     </div>
-                    <div class="stat-card stat-card--green">
-                        <div class="stat-card__icon"><i class="fas fa-circle-check"></i></div>
-                        <div class="stat-card__body">
-                            <div class="stat-card__label">Successful</div>
-                            <div class="stat-card__value" id="successful-requests">0</div>
+                    <div class="stat-glass stat-glass--green">
+                        <div class="stat-icon"><i class="fas fa-circle-check"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Successful</span>
+                            <span class="stat-value" id="successful-requests">0</span>
                         </div>
-                        <div class="stat-card__glow"></div>
                     </div>
-                    <div class="stat-card stat-card--red">
-                        <div class="stat-card__icon"><i class="fas fa-circle-xmark"></i></div>
-                        <div class="stat-card__body">
-                            <div class="stat-card__label">Failed</div>
-                            <div class="stat-card__value" id="failed-requests">0</div>
+                    <div class="stat-glass stat-glass--red">
+                        <div class="stat-icon"><i class="fas fa-circle-xmark"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Failed</span>
+                            <span class="stat-value" id="failed-requests">0</span>
                         </div>
-                        <div class="stat-card__glow"></div>
                     </div>
-                    <div class="stat-card stat-card--purple">
-                        <div class="stat-card__icon"><i class="fas fa-satellite-dish"></i></div>
-                        <div class="stat-card__body">
-                            <div class="stat-card__label">Connection</div>
-                            <div class="stat-card__value stat-card__value--sm">
-                                <span class="status-indicator status-ready" id="status-indicator-2"></span>
-                                <span id="status-text-2">Ready</span>
-                            </div>
+                    <div class="stat-glass stat-glass--purple">
+                        <div class="stat-icon"><i class="fas fa-satellite-dish"></i></div>
+                        <div class="stat-info">
+                            <span class="stat-label">Status</span>
+                            <span class="stat-value stat-value--sm">
+                                <span class="status-dot status-ready"></span> Ready
+                            </span>
                         </div>
-                        <div class="stat-card__glow"></div>
                     </div>
                 </div>
 
                 <!-- Charts -->
-                <div class="charts-grid">
+                <div class="charts-row">
                     <div class="glass-card">
-                        <div class="glass-card__header">
-                            <i class="fas fa-wave-square"></i>
-                            Response Time
+                        <div class="glass-card-header">
+                            <i class="fas fa-wave-square"></i> Response Time
                         </div>
-                        <div class="glass-card__body">
+                        <div class="glass-card-body">
                             <div class="chart-container">
                                 <canvas id="response-time-chart"></canvas>
                             </div>
                         </div>
                     </div>
                     <div class="glass-card">
-                        <div class="glass-card__header">
-                            <i class="fas fa-chart-bar"></i>
-                            Request Rate
+                        <div class="glass-card-header">
+                            <i class="fas fa-chart-bar"></i> Request Rate
                         </div>
-                        <div class="glass-card__body">
+                        <div class="glass-card-body">
                             <div class="chart-container">
                                 <canvas id="request-rate-chart"></canvas>
                             </div>
@@ -162,145 +144,124 @@
                     </div>
                 </div>
 
-                <!-- Activity Log -->
+                <!-- Log -->
                 <div class="glass-card">
-                    <div class="glass-card__header">
-                        <i class="fas fa-terminal"></i>
-                        Activity Log
-                        <button class="btn btn-ghost btn-sm" id="clear-log" style="margin-left:auto">
+                    <div class="glass-card-header">
+                        <i class="fas fa-terminal"></i> Activity Log
+                        <button class="btn btn-ghost btn-xs" id="clear-log" style="margin-left:auto">
                             <i class="fas fa-trash-can"></i> Clear
                         </button>
                     </div>
-                    <div class="glass-card__body" style="padding:0">
-                        <div class="log-container" id="log-container">
-                            <div class="log-entry log-info">› System initialized. Ready for testing.</div>
-                        </div>
+                    <div class="log-container" id="log-container">
+                        <div class="log-entry log-info">› System initialized. Ready for testing.</div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <!-- ── Attacks Page ── -->
-            <div id="attacks-page" class="page-content">
-                <div class="page-header">
-                    <div>
-                        <h1>Attack <span class="page-header-sub">Configuration</span></h1>
-                        <p class="page-subtitle">Configure and launch security tests</p>
-                    </div>
-                </div>
+            <!-- ─── Attacks ─── -->
+            <section id="attacks-page" class="page-content">
+                <header class="page-header">
+                    <h1>Attack <span class="gradient-text">Configuration</span></h1>
+                    <p>Configure and launch security tests</p>
+                </header>
 
-                <div class="attacks-layout">
-                    <!-- Attack Type Selector -->
+                <div class="attack-layout">
+                    <!-- Type Picker -->
                     <div class="glass-card">
-                        <div class="glass-card__header">
-                            <i class="fas fa-list-check"></i>
-                            Select Test Type
-                        </div>
-                        <div class="glass-card__body attack-types-list">
-                            <div class="attack-option selected" data-attack="ddos" tabindex="0" role="button">
-                                <div class="attack-option__icon attack-option__icon--red"><i class="fas fa-bolt"></i></div>
+                        <div class="glass-card-header"><i class="fas fa-list-check"></i> Select Test Type</div>
+                        <div class="glass-card-body attack-list">
+                            <div class="attack-tile selected" data-attack="ddos" tabindex="0" role="button">
+                                <span class="attack-tile-icon tile-red"><i class="fas fa-bolt"></i></span>
                                 <div>
-                                    <div class="attack-option__title">DDoS Simulation</div>
-                                    <div class="attack-option__desc">High-volume request flood test</div>
+                                    <div class="attack-tile-name">DDoS Simulation</div>
+                                    <div class="attack-tile-desc">High-volume request flood</div>
                                 </div>
                             </div>
-                            <div class="attack-option" data-attack="sql" tabindex="0" role="button">
-                                <div class="attack-option__icon attack-option__icon--orange"><i class="fas fa-database"></i></div>
+                            <div class="attack-tile" data-attack="sql" tabindex="0" role="button">
+                                <span class="attack-tile-icon tile-orange"><i class="fas fa-database"></i></span>
                                 <div>
-                                    <div class="attack-option__title">SQL Injection</div>
-                                    <div class="attack-option__desc">Database query injection test</div>
+                                    <div class="attack-tile-name">SQL Injection</div>
+                                    <div class="attack-tile-desc">Database query injection</div>
                                 </div>
                             </div>
-                            <div class="attack-option" data-attack="xss" tabindex="0" role="button">
-                                <div class="attack-option__icon attack-option__icon--yellow"><i class="fas fa-code"></i></div>
+                            <div class="attack-tile" data-attack="xss" tabindex="0" role="button">
+                                <span class="attack-tile-icon tile-yellow"><i class="fas fa-code"></i></span>
                                 <div>
-                                    <div class="attack-option__title">XSS Attack</div>
-                                    <div class="attack-option__desc">Cross-site scripting probe</div>
+                                    <div class="attack-tile-name">XSS Attack</div>
+                                    <div class="attack-tile-desc">Cross-site scripting probe</div>
                                 </div>
                             </div>
-                            <div class="attack-option" data-attack="csrf" tabindex="0" role="button">
-                                <div class="attack-option__icon attack-option__icon--blue"><i class="fas fa-shield-halved"></i></div>
+                            <div class="attack-tile" data-attack="csrf" tabindex="0" role="button">
+                                <span class="attack-tile-icon tile-blue"><i class="fas fa-shield-halved"></i></span>
                                 <div>
-                                    <div class="attack-option__title">CSRF Attack</div>
-                                    <div class="attack-option__desc">Cross-site request forgery test</div>
+                                    <div class="attack-tile-name">CSRF Attack</div>
+                                    <div class="attack-tile-desc">Request forgery test</div>
                                 </div>
                             </div>
-                            <div class="attack-option" data-attack="brute" tabindex="0" role="button">
-                                <div class="attack-option__icon attack-option__icon--purple"><i class="fas fa-key"></i></div>
+                            <div class="attack-tile" data-attack="brute" tabindex="0" role="button">
+                                <span class="attack-tile-icon tile-purple"><i class="fas fa-key"></i></span>
                                 <div>
-                                    <div class="attack-option__title">Brute Force</div>
-                                    <div class="attack-option__desc">Authentication strength test</div>
+                                    <div class="attack-tile-name">Brute Force</div>
+                                    <div class="attack-tile-desc">Auth strength test</div>
                                 </div>
                             </div>
-                            <div class="attack-option" data-attack="port" tabindex="0" role="button">
-                                <div class="attack-option__icon attack-option__icon--teal"><i class="fas fa-network-wired"></i></div>
+                            <div class="attack-tile" data-attack="port" tabindex="0" role="button">
+                                <span class="attack-tile-icon tile-teal"><i class="fas fa-network-wired"></i></span>
                                 <div>
-                                    <div class="attack-option__title">Port Scan</div>
-                                    <div class="attack-option__desc">Open port discovery scan</div>
+                                    <div class="attack-tile-name">Port Scan</div>
+                                    <div class="attack-tile-desc">Open port discovery</div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Attack Parameters -->
+                    <!-- Parameters -->
                     <div class="glass-card">
-                        <div class="glass-card__header">
-                            <i class="fas fa-sliders"></i>
-                            Parameters
-                        </div>
-                        <div class="glass-card__body">
+                        <div class="glass-card-header"><i class="fas fa-sliders"></i> Parameters</div>
+                        <div class="glass-card-body">
                             <form id="attack-form" onsubmit="return false;">
                                 <input type="hidden" id="attack-type-input" value="ddos">
 
-                                <div class="form-group">
-                                    <label class="form-label" for="url-input">
-                                        <i class="fas fa-globe"></i> Target URL / Host
-                                    </label>
-                                    <input class="form-control" type="text" id="url-input" placeholder="https://example.com" required>
+                                <div class="field">
+                                    <label class="field-label" for="url-input"><i class="fas fa-globe"></i> Target URL / Host</label>
+                                    <input class="field-input" type="text" id="url-input" placeholder="https://example.com" required>
                                 </div>
 
-                                <div class="form-row">
-                                    <div class="form-group" id="intensity-group">
-                                        <label class="form-label" for="intensity-input">
-                                            <i class="fas fa-gauge-high"></i> Intensity (req/s)
-                                        </label>
-                                        <input class="form-control" type="number" id="intensity-input" min="1" max="100" value="5">
+                                <div class="field-row">
+                                    <div class="field" id="intensity-group">
+                                        <label class="field-label" for="intensity-input"><i class="fas fa-gauge-high"></i> Intensity (req/s)</label>
+                                        <input class="field-input" type="number" id="intensity-input" min="1" max="100" value="5">
                                     </div>
-                                    <div class="form-group">
-                                        <label class="form-label" for="duration-input">
-                                            <i class="fas fa-clock"></i> Duration (sec)
-                                        </label>
-                                        <input class="form-control" type="number" id="duration-input" min="5" max="300" value="30">
+                                    <div class="field">
+                                        <label class="field-label" for="duration-input"><i class="fas fa-clock"></i> Duration (sec)</label>
+                                        <input class="field-input" type="number" id="duration-input" min="5" max="300" value="30">
                                     </div>
                                 </div>
 
-                                <div class="form-group" id="threads-group">
-                                    <label class="form-label" for="threads-input">
-                                        <i class="fas fa-microchip"></i> Threads
-                                    </label>
-                                    <input class="form-control" type="number" id="threads-input" min="1" max="50" value="10">
+                                <div class="field" id="threads-group">
+                                    <label class="field-label" for="threads-input"><i class="fas fa-microchip"></i> Threads</label>
+                                    <input class="field-input" type="number" id="threads-input" min="1" max="50" value="10">
                                 </div>
 
-                                <!-- Brute Force Fields -->
-                                <div id="brute-fields" style="display:none;">
-                                    <div class="form-group">
-                                        <label class="form-label" for="username-input">Username</label>
-                                        <input class="form-control" type="text" id="username-input" value="admin">
+                                <div id="brute-fields" style="display:none">
+                                    <div class="field">
+                                        <label class="field-label" for="username-input">Username</label>
+                                        <input class="field-input" type="text" id="username-input" value="admin">
                                     </div>
-                                    <div class="form-group">
-                                        <label class="form-label" for="wordlist-input">Wordlist Path (Optional)</label>
-                                        <input class="form-control" type="text" id="wordlist-input" placeholder="C:\path\to\passwords.txt">
+                                    <div class="field">
+                                        <label class="field-label" for="wordlist-input">Wordlist Path (Optional)</label>
+                                        <input class="field-input" type="text" id="wordlist-input" placeholder="C:\path\to\passwords.txt">
                                     </div>
                                 </div>
 
-                                <!-- Port Scan Fields -->
-                                <div id="port-fields" style="display:none;">
-                                    <div class="form-group">
-                                        <label class="form-label" for="port-input">Target Port (Optional)</label>
-                                        <input class="form-control" type="number" id="port-input" min="1" max="65535" placeholder="e.g. 80">
+                                <div id="port-fields" style="display:none">
+                                    <div class="field">
+                                        <label class="field-label" for="port-input">Target Port (Optional)</label>
+                                        <input class="field-input" type="number" id="port-input" min="1" max="65535" placeholder="e.g. 80">
                                     </div>
                                 </div>
 
-                                <div class="form-actions">
+                                <div class="action-bar">
                                     <button class="btn btn-primary" id="start-attack">
                                         <i class="fas fa-play"></i> Launch Test
                                     </button>
@@ -312,93 +273,76 @@
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <!-- ── Vulnerabilities Page ── -->
-            <div id="vulnerabilities-page" class="page-content">
-                <div class="page-header">
-                    <div>
-                        <h1>Security <span class="page-header-sub">Findings</span></h1>
-                        <p class="page-subtitle">Detected vulnerabilities and issues</p>
-                    </div>
-                </div>
+            <!-- ─── Findings ─── -->
+            <section id="vulnerabilities-page" class="page-content">
+                <header class="page-header">
+                    <h1>Security <span class="gradient-text">Findings</span></h1>
+                    <p>Detected vulnerabilities from test runs</p>
+                </header>
                 <div class="glass-card">
-                    <div class="glass-card__header">
-                        <i class="fas fa-triangle-exclamation"></i>
-                        Real-time Findings
-                    </div>
-                    <div class="glass-card__body" id="vulnerabilities-container">
+                    <div class="glass-card-header"><i class="fas fa-triangle-exclamation"></i> Real-time Findings</div>
+                    <div class="glass-card-body" id="vulnerabilities-container">
                         <div class="empty-state">
-                            <div class="empty-state__icon"><i class="fas fa-shield-check"></i></div>
-                            <div class="empty-state__title">No findings yet</div>
-                            <div class="empty-state__desc">Run a security test to discover vulnerabilities</div>
+                            <i class="fas fa-shield-check empty-icon"></i>
+                            <p class="empty-title">No findings yet</p>
+                            <p class="empty-desc">Run a test to discover vulnerabilities</p>
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <!-- ── History Page ── -->
-            <div id="history-page" class="page-content">
-                <div class="page-header">
-                    <div>
-                        <h1>Test <span class="page-header-sub">History</span></h1>
-                        <p class="page-subtitle">Previous security test runs</p>
-                    </div>
-                </div>
+            <!-- ─── History ─── -->
+            <section id="history-page" class="page-content">
+                <header class="page-header">
+                    <h1>Test <span class="gradient-text">History</span></h1>
+                    <p>Previous security test run results</p>
+                </header>
                 <div id="attack-history-container">
-                    <div class="empty-state glass-card">
-                        <div class="glass-card__body">
-                            <div class="empty-state__icon"><i class="fas fa-clock-rotate-left"></i></div>
-                            <div class="empty-state__title">No history yet</div>
-                            <div class="empty-state__desc">Completed tests will appear here</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ── Settings Page ── -->
-            <div id="settings-page" class="page-content">
-                <div class="page-header">
-                    <div>
-                        <h1>System <span class="page-header-sub">Settings</span></h1>
-                        <p class="page-subtitle">Configure backend and system options</p>
-                    </div>
-                </div>
-
-                <div class="settings-grid">
                     <div class="glass-card">
-                        <div class="glass-card__header">
-                            <i class="fas fa-server"></i>
-                            Backend Connection
+                        <div class="glass-card-body">
+                            <div class="empty-state">
+                                <i class="fas fa-clock-rotate-left empty-icon"></i>
+                                <p class="empty-title">No history yet</p>
+                                <p class="empty-desc">Completed tests appear here</p>
+                            </div>
                         </div>
-                        <div class="glass-card__body">
-                            <div class="form-group">
-                                <label class="form-label" for="backend-url-input">
-                                    <i class="fas fa-link"></i> Hugging Face Space URL / Host
-                                </label>
-                                <input class="form-control" type="text" id="backend-url-input" placeholder="username-space.hf.space">
-                                <p class="form-hint">Leave blank to use the default configured backend. Enter a custom host to override.</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Settings ─── -->
+            <section id="settings-page" class="page-content">
+                <header class="page-header">
+                    <h1>System <span class="gradient-text">Settings</span></h1>
+                    <p>Configure connection and system options</p>
+                </header>
+                <div class="settings-two-col">
+                    <div class="glass-card">
+                        <div class="glass-card-header"><i class="fas fa-server"></i> Backend Connection</div>
+                        <div class="glass-card-body">
+                            <div class="field">
+                                <label class="field-label" for="backend-url-input"><i class="fas fa-link"></i> Hugging Face Space URL</label>
+                                <input class="field-input" type="text" id="backend-url-input" placeholder="username-space.hf.space">
+                                <span class="field-hint">Leave blank to use the default backend. Enter a custom host to override.</span>
                             </div>
                             <button class="btn btn-primary" id="btn-save-backend">
                                 <i class="fas fa-floppy-disk"></i> Save &amp; Reconnect
                             </button>
                         </div>
                     </div>
-
                     <div class="glass-card">
-                        <div class="glass-card__header">
-                            <i class="fas fa-database"></i>
-                            Data Management
-                        </div>
-                        <div class="glass-card__body">
-                            <p class="form-hint" style="margin-bottom:16px;">Reset all metrics, logs, vulnerability findings, and test history from the backend.</p>
+                        <div class="glass-card-header"><i class="fas fa-database"></i> Data Management</div>
+                        <div class="glass-card-body">
+                            <p class="field-hint" style="margin-bottom:20px">Reset all metrics, logs, vulnerability findings, and test history from the backend.</p>
                             <button class="btn btn-danger" id="btn-reset-all">
                                 <i class="fas fa-arrows-rotate"></i> Reset All Data
                             </button>
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
         </main>
     </div>
