@@ -97,20 +97,21 @@ function initAttackSelector() {
             const durGrp = el('duration-input')?.closest('.field');
             if (durGrp) durGrp.style.display = hideDuration ? 'none' : 'block';
 
-            // Advanced Pro Fields
-            const sqlFields = el('sql-fields');
-            const xssFields = el('xss-fields');
-            const cmdFields = el('cmd-fields');
-            const ssrfFields = el('ssrf-fields');
-            const xxeFields = el('xxe-fields');
-            const travFields = el('traversal-fields');
-
-            if (sqlFields) sqlFields.style.display = (t === 'sql') ? 'block' : 'none';
-            if (xssFields) xssFields.style.display = (t === 'xss') ? 'block' : 'none';
-            if (cmdFields) cmdFields.style.display = (t === 'cmd') ? 'block' : 'none';
-            if (ssrfFields) ssrfFields.style.display = (t === 'ssrf') ? 'block' : 'none';
-            if (xxeFields) xxeFields.style.display = (t === 'xxe') ? 'block' : 'none';
-            if (travFields) travFields.style.display = (t === 'traversal') ? 'block' : 'none';
+             const sqlFields = el('sql-fields');
+             const xssFields = el('xss-fields');
+             const cmdFields = el('cmd-fields');
+             const ssrfFields = el('ssrf-fields');
+             const xxeFields = el('xxe-fields');
+             const travFields = el('traversal-fields');
+             const headerFields = el('header_inj-fields');
+ 
+             if (sqlFields) sqlFields.style.display = (t === 'sql') ? 'block' : 'none';
+             if (xssFields) xssFields.style.display = (t === 'xss') ? 'block' : 'none';
+             if (cmdFields) cmdFields.style.display = (t === 'cmd') ? 'block' : 'none';
+             if (ssrfFields) ssrfFields.style.display = (t === 'ssrf') ? 'block' : 'none';
+             if (xxeFields) xxeFields.style.display = (t === 'xxe') ? 'block' : 'none';
+             if (travFields) travFields.style.display = (t === 'traversal') ? 'block' : 'none';
+             if (headerFields) headerFields.style.display = (t === 'header_inj') ? 'block' : 'none';
 
 
         });
@@ -393,7 +394,8 @@ async function startAttack() {
         threads:     parseInt(el('threads-input')   ? el('threads-input').value   : 10),
         target_port: el('port-input') && el('port-input').value ? parseInt(el('port-input').value) : null,
         username:    el('username-input') ? el('username-input').value.trim() || null : null,
-        wordlist:    el('wordlist-input') ? el('wordlist-input').value.trim() || null : null
+        wordlist:    el('wordlist-input') ? el('wordlist-input').value.trim() || null : null,
+        custom_header_payload: el('header-payload-input') ? el('header-payload-input').value.trim() || null : null
     };
 
     const startBtn = el('start-attack');
