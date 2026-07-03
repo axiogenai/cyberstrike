@@ -79,10 +79,40 @@ function initAttackSelector() {
             const t = item.dataset.attack;
             if (typeInput) typeInput.value = t;
 
+            
             if (bruteBox)  bruteBox.style.display  = t === 'brute' ? 'block' : 'none';
             if (portBox)   portBox.style.display    = t === 'port'  ? 'block' : 'none';
-            if (intGrp)    intGrp.style.display     = t === 'port'  ? 'none'  : 'block';
-            if (thrdGrp)   thrdGrp.style.display    = t === 'port'  ? 'none'  : 'block';
+            
+            // For DDoS, Slowloris, Brute: Show both Intensity and Threads
+            // For other vulnerabilities (SQL, XSS, CSRF, IDOR, etc.): Hide Intensity and Threads
+            // For Port scan: Hide Intensity and Threads
+            
+            
+            const showBoth = ['ddos', 'slowloris', 'brute'].includes(t);
+            const hideDuration = ['sql', 'xss', 'csrf', 'idor', 'redirect', 'header_inj', 'cmd', 'ssrf', 'xxe', 'traversal', 'port'].includes(t);
+
+            if (intGrp)    intGrp.style.display     = showBoth ? 'block'  : 'none';
+            if (thrdGrp)   thrdGrp.style.display    = showBoth ? 'block'  : 'none';
+            
+            const durGrp = el('duration-input')?.closest('.field');
+            if (durGrp) durGrp.style.display = hideDuration ? 'none' : 'block';
+
+            // Advanced Pro Fields
+            const sqlFields = el('sql-fields');
+            const xssFields = el('xss-fields');
+            const cmdFields = el('cmd-fields');
+            const ssrfFields = el('ssrf-fields');
+            const xxeFields = el('xxe-fields');
+            const travFields = el('traversal-fields');
+
+            if (sqlFields) sqlFields.style.display = (t === 'sql') ? 'block' : 'none';
+            if (xssFields) xssFields.style.display = (t === 'xss') ? 'block' : 'none';
+            if (cmdFields) cmdFields.style.display = (t === 'cmd') ? 'block' : 'none';
+            if (ssrfFields) ssrfFields.style.display = (t === 'ssrf') ? 'block' : 'none';
+            if (xxeFields) xxeFields.style.display = (t === 'xxe') ? 'block' : 'none';
+            if (travFields) travFields.style.display = (t === 'traversal') ? 'block' : 'none';
+
+
         });
     });
 }
@@ -156,16 +186,41 @@ function addVuln(v) {
     if (empty) empty.remove();
 
     const d = document.createElement('div');
-    d.className = 'vuln-item';
+    d.className = 'vuln-item glass-card'; 
+    d.style.marginBottom = '15px';
+    
+    let detailHTML = '';
+    if (v.detail) detailHTML = `<p style="margin-top:10px;font-size:0.85rem;color:var(--t2)"><strong>Detail:</strong> ${v.detail}</p>`;
+    
+    let evidenceHTML = '';
+    if (v.evidence) {
+        const ev = String(v.evidence).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        evidenceHTML = `<div style="margin-top:12px;padding:10px;background:rgba(0,0,0,0.3);border-radius:4px;border-left:3px solid var(--danger);font-family:var(--mono);font-size:0.75rem;color:#f0a3a3;overflow-x:auto;"><strong>Proof / Evidence:</strong><br><br>${ev}</div>`;
+    }
+
     d.innerHTML = `
-        <h5><i class="fas fa-triangle-exclamation"></i> ${v.type || 'Unknown'}</h5>
-        <p><strong>URL:</strong> ${v.url || '-'}</p>
-        <p><strong>Payload:</strong> <code>${v.payload || '-'}</code></p>
-        ${v.severity ? `<p><strong>Severity:</strong> ${v.severity}</p>` : ''}
-        ${v.evidence ? `<p><strong>Evidence:</strong> ${v.evidence}</p>` : ''}
+        <div class="card-body" style="padding:15px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+                <h5 style="margin:0;font-size:1.1rem;color:var(--danger)"><i class="fas fa-spider" style="margin-right:8px"></i>${v.type || 'Unknown'}</h5>
+                ${v.severity ? `<span style="font-size:0.7rem;padding:3px 10px;border-radius:12px;background:var(--danger);color:white;font-weight:700;text-transform:uppercase;letter-spacing:1px">${v.severity}</span>` : ''}
+            </div>
+            
+            <p style="margin:0 0 6px 0;font-size:0.85rem;color:var(--t1)">
+                <i class="fas fa-crosshairs" style="color:var(--t3);margin-right:6px"></i> 
+                <strong>Target:</strong> <span style="font-family:var(--mono);color:var(--primary)">${v.url || '-'}</span>
+            </p>
+            
+            ${v.payload ? `<p style="margin:0;font-size:0.85rem;color:var(--t2)"><i class="fas fa-biohazard" style="color:var(--t3);margin-right:6px"></i><strong>Payload:</strong> <code style="margin-left:4px;color:#c97a7e">${String(v.payload).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></p>` : ''}
+            
+            ${detailHTML}
+            ${evidenceHTML}
+            
+            <div style="margin-top:12px;text-align:right;font-size:0.7rem;color:var(--t3);border-top:1px solid rgba(255,255,255,0.05);padding-top:8px;">
+                <i class="fas fa-clock"></i> Discovered: ${v.timestamp ? new Date(v.timestamp).toLocaleString() : new Date().toLocaleString()}
+            </div>
+        </div>
     `;
     box.insertBefore(d, box.firstChild);
-    addLog(`Vulnerability found: ${v.type} @ ${v.url}`, 'error');
 }
 
 // ── History entry ──────────────────────────────────────────────────
