@@ -47,6 +47,21 @@ if (backendUrlInput) {
     backendUrlInput.value = localStorage.getItem('testing_backend_host') || '';
 }
 
+// Strip protocol/path from any URL — always extract just the hostname
+function sanitizeHost(raw) {
+    if (!raw) return '';
+    try {
+        // If it has a protocol, parse it as a URL
+        if (raw.includes('://')) {
+            return new URL(raw).hostname;
+        }
+        // Otherwise strip any trailing path/slash
+        return raw.split('/')[0].trim();
+    } catch (e) {
+        return raw.split('/')[0].trim();
+    }
+}
+
 // Backend connection
 function getBackendUrls() {
     const isSecure = BACKEND_HOST.includes('.hf.space') || window.location.protocol === 'https:';
@@ -520,7 +535,7 @@ async function boot() {
             const res = await fetch('/api/config');
             const config = await res.json();
             if (config.backendHost) {
-                BACKEND_HOST = config.backendHost;
+                BACKEND_HOST = sanitizeHost(config.backendHost);
             }
         } catch (err) {
             console.warn('Could not fetch /api/config, using fallback.');
@@ -529,7 +544,7 @@ async function boot() {
 
     // Allow manual override from Settings page localStorage
     const saved = localStorage.getItem('testing_backend_host');
-    if (saved) BACKEND_HOST = saved;
+    if (saved) BACKEND_HOST = sanitizeHost(saved);
 
     if (!BACKEND_HOST && window.location.protocol === 'file:') {
         BACKEND_HOST = '127.0.0.1:8000';
