@@ -13,7 +13,8 @@ let metricsData = {
 
 // DOM elements
 const attackForm = document.getElementById('attack-form');
-const attackOptions = document.querySelectorAll('.attack-option');
+// Support both old (.attack-option) and new (.atk-item) selectors
+const attackOptions = document.querySelectorAll('.attack-option, .atk-item');
 const startAttackBtn = document.getElementById('start-attack');
 const stopAttackBtn = document.getElementById('stop-attack');
 const statusIndicator = document.getElementById('status-indicator');
@@ -27,9 +28,10 @@ const attackHistoryContainer = document.getElementById('attack-history-container
 const responseTimeChartEl = document.getElementById('response-time-chart');
 const requestRateChartEl = document.getElementById('request-rate-chart');
 
-// Navigation links
-const navLinks = document.querySelectorAll('.nav-link, .sidebar .nav-link');
-const pages = document.querySelectorAll('.page-content');
+// Navigation — supports both .nav-link (legacy) and .slink (new design)
+const navLinks = document.querySelectorAll('.nav-link, .slink');
+// Pages — supports both .page-content (legacy) and .page (new design)
+const pages = document.querySelectorAll('.page-content, .page');
 
 // Form dynamic fields
 const attackTypeInput = document.getElementById('attack-type-input');
@@ -88,8 +90,14 @@ navLinks.forEach(link => {
     link.addEventListener('click', (e) => {
         e.preventDefault();
         const pageId = link.getAttribute('data-page');
-        
-        // Update active class on nav links
+        if (!pageId) return;
+
+        // Keep the URL clean — no #, no query params
+        if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', window.location.pathname);
+        }
+
+        // Update active class on all nav links
         navLinks.forEach(l => {
             if (l.getAttribute('data-page') === pageId) {
                 l.classList.add('active');
@@ -97,8 +105,8 @@ navLinks.forEach(link => {
                 l.classList.remove('active');
             }
         });
-        
-        // Show correct page
+
+        // Show correct page — matches both .page and .page-content
         pages.forEach(page => {
             if (page.id === `${pageId}-page`) {
                 page.classList.add('active');
@@ -222,21 +230,23 @@ function addVulnerability(vulnerability) {
     addLogEntry(`Vulnerability recorded: ${vulnerability.type} at ${vulnerability.url}`, 'error');
 }
 
-// Update attack running states
+// Update attack running states — works with both old .status-indicator and new .status-dot
 function updateAttackStatus(status) {
     if (status.running) {
-        statusIndicator.className = 'status-indicator status-running';
-        statusText.textContent = `Testing (${status.attack_type.toUpperCase()})`;
-        startAttackBtn.disabled = true;
-        stopAttackBtn.disabled = false;
+        // New design uses status-dot class + ready/running/error modifiers
+        statusIndicator.className = 'status-dot running';
+        statusText.textContent = status.attack_type ? `Running: ${status.attack_type.toUpperCase()}` : 'Running...';
+        if (startAttackBtn) startAttackBtn.disabled = true;
+        if (stopAttackBtn) stopAttackBtn.disabled = false;
     } else {
-        statusIndicator.className = 'status-indicator status-ready';
+        statusIndicator.className = 'status-dot ready';
         statusText.textContent = 'Ready';
-        startAttackBtn.disabled = false;
-        stopAttackBtn.disabled = true;
-        
+        if (startAttackBtn) startAttackBtn.disabled = false;
+        if (stopAttackBtn) stopAttackBtn.disabled = true;
+
         if (status.completed) {
-            addLogEntry(`Attack completed: ${status.attack_type.toUpperCase()}. Total: ${status.total_requests} requests.`, 'success');
+            const type = status.attack_type ? status.attack_type.toUpperCase() : 'TEST';
+            addLogEntry(`Completed: ${type} — ${status.total_requests || 0} requests sent.`, 'success');
             addToAttackHistory(status);
         }
     }
@@ -287,6 +297,28 @@ function addToAttackHistory(attack) {
     attackHistoryContainer.insertBefore(historyItem, attackHistoryContainer.firstChild);
 }
 
+// Chart defaults — monochrome palette
+Chart.defaults.color = 'rgba(255,255,255,0.4)';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.07)';
+
+const CHART_OPTS = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 300 },
+    scales: {
+        y: {
+            beginAtZero: true,
+            grid: { color: 'rgba(255,255,255,0.06)' },
+            ticks: { color: 'rgba(255,255,255,0.4)', font: { family: 'JetBrains Mono', size: 10 } }
+        },
+        x: {
+            grid: { display: false },
+            ticks: { color: 'rgba(255,255,255,0.3)', font: { family: 'JetBrains Mono', size: 9 } }
+        }
+    },
+    plugins: { legend: { display: false } }
+};
+
 // Initialize ChartJS
 function initCharts() {
     const responseTimeCtx = responseTimeChartEl.getContext('2d');
@@ -297,33 +329,18 @@ function initCharts() {
             datasets: [{
                 label: 'Response Time (ms)',
                 data: [],
-                backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                borderColor: 'rgba(59, 130, 246, 1)',
-                borderWidth: 2,
-                tension: 0.3,
-                fill: true
+                backgroundColor: 'rgba(255,255,255,0.06)',
+                borderColor: 'rgba(255,255,255,0.7)',
+                borderWidth: 1.5,
+                tension: 0.4,
+                fill: true,
+                pointRadius: 2,
+                pointBackgroundColor: 'rgba(255,255,255,0.8)'
             }]
         },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                    ticks: { color: 'rgba(255, 255, 255, 0.6)' }
-                },
-                x: {
-                    grid: { display: false },
-                    ticks: { color: 'rgba(255, 255, 255, 0.6)' }
-                }
-            },
-            plugins: {
-                legend: { display: false }
-            }
-        }
+        options: { ...CHART_OPTS }
     });
-    
+
     const requestRateCtx = requestRateChartEl.getContext('2d');
     window.requestRateChart = new Chart(requestRateCtx, {
         type: 'bar',
@@ -332,35 +349,13 @@ function initCharts() {
             datasets: [{
                 label: 'Requests',
                 data: [0, 0],
-                backgroundColor: [
-                    'rgba(16, 185, 129, 0.6)',
-                    'rgba(239, 68, 68, 0.6)'
-                ],
-                borderColor: [
-                    'rgba(16, 185, 129, 1)',
-                    'rgba(239, 68, 68, 1)'
-                ],
-                borderWidth: 1
+                backgroundColor: ['rgba(255,255,255,0.15)', 'rgba(255,255,255,0.05)'],
+                borderColor:     ['rgba(255,255,255,0.6)',  'rgba(255,255,255,0.2)'],
+                borderWidth: 1,
+                borderRadius: 4
             }]
         },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                    ticks: { color: 'rgba(255, 255, 255, 0.6)' }
-                },
-                x: {
-                    grid: { display: false },
-                    ticks: { color: 'rgba(255, 255, 255, 0.6)' }
-                }
-            },
-            plugins: {
-                legend: { display: false }
-            }
-        }
+        options: { ...CHART_OPTS }
     });
 }
 
