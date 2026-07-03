@@ -293,6 +293,10 @@ button, .btn-primary, .btn-danger { cursor: pointer; border: none; font-family: 
 .finput:focus  { border-color: rgba(255,255,255,0.3); background: var(--g3); }
 .finput::placeholder { color: var(--t3); }
 select.finput  { cursor: pointer; }
+select.finput option {
+    background-color: #1c1c1e;
+    color: #ffffff;
+}
 .hint { font-size: 11px; color: var(--t3); margin-top: 5px; display: block; }
 
 /* ── Attack list ─────────────────────────────────────── */
