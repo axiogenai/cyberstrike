@@ -242,11 +242,11 @@ function initCharts() {
     window.requestRateChart = new Chart(rrCanvas.getContext('2d'), {
         type: 'bar',
         data: {
-            labels: ['Successful', 'Failed'],
+            labels: ['Successful', 'Errors/Blocks'],
             datasets: [{
                 data: [0, 0],
-                backgroundColor: ['rgba(255,255,255,0.18)', 'rgba(255,255,255,0.05)'],
-                borderColor:     ['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.18)'],
+                backgroundColor: ['rgba(255,255,255,0.18)', 'rgba(255,255,255,0.06)'],
+                borderColor:     ['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.2)'],
                 borderWidth: 1,
                 borderRadius: 4
             }]
@@ -270,25 +270,38 @@ function updateCharts() {
 }
 
 // ── WebSocket ──────────────────────────────────────────────────────
+let wsRetryDelay = 2000;
+let wsRetryTimer = null;
+
 function connectWS() {
     if (!BACKEND_HOST) return;
+    if (wsRetryTimer) { clearTimeout(wsRetryTimer); wsRetryTimer = null; }
     const { ws: wsUrl } = getBackendUrls();
     ws = new WebSocket(wsUrl);
 
-    ws.onopen  = () => addLog('Connected to backend.', 'success');
-    ws.onclose = () => { addLog('Disconnected - retrying in 4s...', 'warning'); setTimeout(connectWS, 4000); };
-    ws.onerror = () => addLog('WebSocket error.', 'error');
+    ws.onopen = function() {
+        wsRetryDelay = 2000;
+        addLog('Connected to backend.', 'success');
+        setStatus('ready', 'Ready');
+    };
+    ws.onclose = function() {
+        addLog('Disconnected — retrying in ' + (wsRetryDelay/1000) + 's...', 'warning');
+        setStatus('error', 'Offline');
+        wsRetryTimer = setTimeout(connectWS, wsRetryDelay);
+        wsRetryDelay = Math.min(wsRetryDelay * 1.5, 30000);
+    };
+    ws.onerror = function() { addLog('WebSocket error.', 'error'); };
 
-    ws.onmessage = ({ data }) => {
+    ws.onmessage = function(evt) {
         try {
-            const msg = JSON.parse(data);
+            var msg = JSON.parse(evt.data);
             switch (msg.type) {
                 case 'metrics':       updateStats(msg.data);         break;
                 case 'vulnerability': addVuln(msg.data);             break;
                 case 'attack_status': handleAttackStatus(msg.data);  break;
-                case 'log':           addLog(msg.message, msg.level); break;
+                case 'log':           addLog(msg.message, msg.level || 'info'); break;
             }
-        } catch (e) { /* ignore malformed frames */ }
+        } catch(e) { /* ignore malformed */ }
     };
 }
 
