@@ -7,267 +7,250 @@
     <meta name="description" content="Professional security testing dashboard with real-time metrics, vulnerability detection and attack simulation.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
-    <!-- Gradient Mesh Background -->
-    <div class="bg-mesh" aria-hidden="true">
-        <div class="mesh-blob mesh-blob--1"></div>
-        <div class="mesh-blob mesh-blob--2"></div>
-        <div class="mesh-blob mesh-blob--3"></div>
-        <div class="mesh-blob mesh-blob--4"></div>
-        <div class="mesh-blob mesh-blob--5"></div>
-    </div>
+    <!-- Background noise -->
+    <div class="bg-base" aria-hidden="true"></div>
 
-    <!-- Navbar -->
-    <nav class="navbar glass-panel">
-        <div class="navbar-brand">
-            <div class="brand-logo">
-                <i class="fas fa-shield-halved"></i>
-            </div>
+    <!-- Topbar — brand + status only, NO nav links -->
+    <header class="topbar">
+        <div class="topbar-brand">
+            <div class="brand-mark"><i class="fas fa-shield-halved"></i></div>
             <span class="brand-name">CyberStrike <strong>Suite</strong></span>
         </div>
-
-        <ul class="navbar-nav" role="navigation" aria-label="Main navigation">
-            <li><a class="nav-pill active" href="#" data-page="dashboard"><i class="fas fa-chart-line"></i> Dashboard</a></li>
-            <li><a class="nav-pill" href="#" data-page="attacks"><i class="fas fa-crosshairs"></i> Attacks</a></li>
-            <li><a class="nav-pill" href="#" data-page="vulnerabilities"><i class="fas fa-bug"></i> Findings</a></li>
-            <li><a class="nav-pill" href="#" data-page="history"><i class="fas fa-clock-rotate-left"></i> History</a></li>
-            <li><a class="nav-pill" href="#" data-page="settings"><i class="fas fa-sliders"></i> Settings</a></li>
-        </ul>
-
-        <div class="navbar-end">
-            <div class="status-chip">
-                <span class="status-dot status-ready" id="status-indicator"></span>
+        <div class="topbar-right">
+            <div class="status-badge">
+                <span class="status-dot ready" id="status-indicator"></span>
                 <span id="status-text">Ready</span>
             </div>
         </div>
-    </nav>
+    </header>
 
-    <!-- App Shell -->
-    <div class="app-shell">
+    <div class="shell">
 
-        <!-- Sidebar -->
-        <aside class="sidebar glass-panel">
-            <p class="sidebar-label">Navigation</p>
-            <nav>
-                <a class="sidebar-link active" href="#" data-page="dashboard">
+        <!-- Sidebar — single source of navigation -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <p class="sidebar-label">Monitoring</p>
+                <a class="slink active" href="#" data-page="dashboard">
                     <i class="fas fa-chart-line"></i> Dashboard
                 </a>
-                <a class="sidebar-link" href="#" data-page="attacks">
-                    <i class="fas fa-crosshairs"></i> Attack Types
+            </div>
+            <div class="sidebar-section">
+                <p class="sidebar-label">Offensive</p>
+                <a class="slink" href="#" data-page="attacks">
+                    <i class="fas fa-crosshairs"></i> Attacks
                 </a>
-                <a class="sidebar-link" href="#" data-page="vulnerabilities">
+                <a class="slink" href="#" data-page="redteam">
+                    <i class="fas fa-user-secret"></i> Red Team
+                </a>
+            </div>
+            <div class="sidebar-section">
+                <p class="sidebar-label">Intelligence</p>
+                <a class="slink" href="#" data-page="recon">
+                    <i class="fas fa-magnifying-glass"></i> Recon &amp; OSINT
+                </a>
+                <a class="slink" href="#" data-page="vulnerabilities">
                     <i class="fas fa-bug"></i> Findings
                 </a>
-                <a class="sidebar-link" href="#" data-page="history">
+                <a class="slink" href="#" data-page="history">
                     <i class="fas fa-clock-rotate-left"></i> History
                 </a>
-            </nav>
-            <p class="sidebar-label" style="margin-top:auto">System</p>
-            <nav>
-                <a class="sidebar-link" href="#" data-page="settings">
+            </div>
+            <div class="sidebar-section sidebar-bottom">
+                <p class="sidebar-label">System</p>
+                <a class="slink" href="#" data-page="settings">
                     <i class="fas fa-sliders"></i> Settings
                 </a>
-            </nav>
+            </div>
         </aside>
 
         <!-- Content -->
-        <main class="content-area">
+        <main class="content">
 
             <!-- ─── Dashboard ─── -->
-            <section id="dashboard-page" class="page-content active">
-                <header class="page-header">
-                    <h1>Dashboard <span class="gradient-text">Overview</span></h1>
+            <section id="dashboard-page" class="page active">
+                <div class="page-header">
+                    <h1>Dashboard</h1>
                     <p>Real-time security monitoring</p>
-                </header>
+                </div>
 
-                <!-- Stats -->
-                <div class="stats-row">
-                    <div class="stat-glass stat-glass--blue">
-                        <div class="stat-icon"><i class="fas fa-paper-plane"></i></div>
-                        <div class="stat-info">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-top">
                             <span class="stat-label">Total Requests</span>
-                            <span class="stat-value" id="total-requests">0</span>
+                            <i class="fas fa-paper-plane stat-ico"></i>
                         </div>
+                        <div class="stat-val" id="total-requests">0</div>
                     </div>
-                    <div class="stat-glass stat-glass--green">
-                        <div class="stat-icon"><i class="fas fa-circle-check"></i></div>
-                        <div class="stat-info">
+                    <div class="stat-card">
+                        <div class="stat-top">
                             <span class="stat-label">Successful</span>
-                            <span class="stat-value" id="successful-requests">0</span>
+                            <i class="fas fa-circle-check stat-ico success"></i>
                         </div>
+                        <div class="stat-val success" id="successful-requests">0</div>
                     </div>
-                    <div class="stat-glass stat-glass--red">
-                        <div class="stat-icon"><i class="fas fa-circle-xmark"></i></div>
-                        <div class="stat-info">
+                    <div class="stat-card">
+                        <div class="stat-top">
                             <span class="stat-label">Failed</span>
-                            <span class="stat-value" id="failed-requests">0</span>
+                            <i class="fas fa-circle-xmark stat-ico danger"></i>
                         </div>
+                        <div class="stat-val danger" id="failed-requests">0</div>
                     </div>
-                    <div class="stat-glass stat-glass--purple">
-                        <div class="stat-icon"><i class="fas fa-satellite-dish"></i></div>
-                        <div class="stat-info">
-                            <span class="stat-label">Status</span>
-                            <span class="stat-value stat-value--sm">
-                                <span class="status-dot status-ready"></span> Ready
-                            </span>
+                    <div class="stat-card">
+                        <div class="stat-top">
+                            <span class="stat-label">Connection</span>
+                            <i class="fas fa-satellite-dish stat-ico"></i>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Charts -->
-                <div class="charts-row">
-                    <div class="glass-card">
-                        <div class="glass-card-header">
-                            <i class="fas fa-wave-square"></i> Response Time
-                        </div>
-                        <div class="glass-card-body">
-                            <div class="chart-container">
-                                <canvas id="response-time-chart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="glass-card">
-                        <div class="glass-card-header">
-                            <i class="fas fa-chart-bar"></i> Request Rate
-                        </div>
-                        <div class="glass-card-body">
-                            <div class="chart-container">
-                                <canvas id="request-rate-chart"></canvas>
-                            </div>
+                        <div class="stat-val stat-val--sm">
+                            <span class="status-dot ready"></span> <span>Ready</span>
                         </div>
                     </div>
                 </div>
 
-                <!-- Log -->
+                <div class="two-col">
+                    <div class="glass-card">
+                        <div class="card-head"><i class="fas fa-wave-square"></i> Response Time</div>
+                        <div class="card-body"><div class="chart-wrap"><canvas id="response-time-chart"></canvas></div></div>
+                    </div>
+                    <div class="glass-card">
+                        <div class="card-head"><i class="fas fa-chart-bar"></i> Request Rate</div>
+                        <div class="card-body"><div class="chart-wrap"><canvas id="request-rate-chart"></canvas></div></div>
+                    </div>
+                </div>
+
                 <div class="glass-card">
-                    <div class="glass-card-header">
+                    <div class="card-head">
                         <i class="fas fa-terminal"></i> Activity Log
-                        <button class="btn btn-ghost btn-xs" id="clear-log" style="margin-left:auto">
-                            <i class="fas fa-trash-can"></i> Clear
-                        </button>
+                        <button class="btn-ghost-sm" id="clear-log" style="margin-left:auto"><i class="fas fa-trash-can"></i> Clear</button>
                     </div>
-                    <div class="log-container" id="log-container">
-                        <div class="log-entry log-info">› System initialized. Ready for testing.</div>
+                    <div class="log-box" id="log-container">
+                        <div class="log-line log-info">› System initialized. Ready for testing.</div>
                     </div>
                 </div>
             </section>
 
             <!-- ─── Attacks ─── -->
-            <section id="attacks-page" class="page-content">
-                <header class="page-header">
-                    <h1>Attack <span class="gradient-text">Configuration</span></h1>
+            <section id="attacks-page" class="page">
+                <div class="page-header">
+                    <h1>Attacks</h1>
                     <p>Configure and launch security tests</p>
-                </header>
-
-                <div class="attack-layout">
-                    <!-- Type Picker -->
+                </div>
+                <div class="two-col-fixed">
                     <div class="glass-card">
-                        <div class="glass-card-header"><i class="fas fa-list-check"></i> Select Test Type</div>
-                        <div class="glass-card-body attack-list">
-                            <div class="attack-tile selected" data-attack="ddos" tabindex="0" role="button">
-                                <span class="attack-tile-icon tile-red"><i class="fas fa-bolt"></i></span>
-                                <div>
-                                    <div class="attack-tile-name">DDoS Simulation</div>
-                                    <div class="attack-tile-desc">High-volume request flood</div>
-                                </div>
+                        <div class="card-head"><i class="fas fa-list-check"></i> Test Type</div>
+                        <div class="card-body atk-list">
+                            <!-- ── Web App ── -->
+                            <div class="atk-group-label">Web Application</div>
+                            <div class="atk-item selected" data-attack="ddos" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-bolt"></i></span>
+                                <div><div class="atk-name">DDoS Simulation</div><div class="atk-desc">High-volume request flood</div></div>
                             </div>
-                            <div class="attack-tile" data-attack="sql" tabindex="0" role="button">
-                                <span class="attack-tile-icon tile-orange"><i class="fas fa-database"></i></span>
-                                <div>
-                                    <div class="attack-tile-name">SQL Injection</div>
-                                    <div class="attack-tile-desc">Database query injection</div>
-                                </div>
+                            <div class="atk-item" data-attack="sql" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-database"></i></span>
+                                <div><div class="atk-name">SQL Injection</div><div class="atk-desc">Database query injection</div></div>
                             </div>
-                            <div class="attack-tile" data-attack="xss" tabindex="0" role="button">
-                                <span class="attack-tile-icon tile-yellow"><i class="fas fa-code"></i></span>
-                                <div>
-                                    <div class="attack-tile-name">XSS Attack</div>
-                                    <div class="attack-tile-desc">Cross-site scripting probe</div>
-                                </div>
+                            <div class="atk-item" data-attack="xss" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-code"></i></span>
+                                <div><div class="atk-name">XSS Attack</div><div class="atk-desc">Cross-site scripting probe</div></div>
                             </div>
-                            <div class="attack-tile" data-attack="csrf" tabindex="0" role="button">
-                                <span class="attack-tile-icon tile-blue"><i class="fas fa-shield-halved"></i></span>
-                                <div>
-                                    <div class="attack-tile-name">CSRF Attack</div>
-                                    <div class="attack-tile-desc">Request forgery test</div>
-                                </div>
+                            <div class="atk-item" data-attack="csrf" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-shield-halved"></i></span>
+                                <div><div class="atk-name">CSRF Attack</div><div class="atk-desc">Request forgery test</div></div>
                             </div>
-                            <div class="attack-tile" data-attack="brute" tabindex="0" role="button">
-                                <span class="attack-tile-icon tile-purple"><i class="fas fa-key"></i></span>
-                                <div>
-                                    <div class="attack-tile-name">Brute Force</div>
-                                    <div class="attack-tile-desc">Auth strength test</div>
-                                </div>
+                            <div class="atk-item" data-attack="idor" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-lock-open"></i></span>
+                                <div><div class="atk-name">IDOR</div><div class="atk-desc">Insecure direct object ref</div></div>
                             </div>
-                            <div class="attack-tile" data-attack="port" tabindex="0" role="button">
-                                <span class="attack-tile-icon tile-teal"><i class="fas fa-network-wired"></i></span>
-                                <div>
-                                    <div class="attack-tile-name">Port Scan</div>
-                                    <div class="attack-tile-desc">Open port discovery</div>
-                                </div>
+                            <div class="atk-item" data-attack="redirect" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-arrow-up-right-from-square"></i></span>
+                                <div><div class="atk-name">Open Redirect</div><div class="atk-desc">Unvalidated redirect test</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="header_inj" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-file-code"></i></span>
+                                <div><div class="atk-name">Header Injection</div><div class="atk-desc">HTTP header injection</div></div>
+                            </div>
+                            <!-- ── Server-Side ── -->
+                            <div class="atk-group-label">Server-Side</div>
+                            <div class="atk-item" data-attack="cmd" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-terminal"></i></span>
+                                <div><div class="atk-name">Command Injection</div><div class="atk-desc">OS command exec test</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="ssrf" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-globe"></i></span>
+                                <div><div class="atk-name">SSRF</div><div class="atk-desc">Server-side request forgery</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="xxe" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-file-xml"></i></span>
+                                <div><div class="atk-name">XXE Injection</div><div class="atk-desc">XML external entity</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="traversal" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-folder-open"></i></span>
+                                <div><div class="atk-name">Directory Traversal</div><div class="atk-desc">Path traversal / LFI test</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="slowloris" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-hourglass-half"></i></span>
+                                <div><div class="atk-name">Slowloris</div><div class="atk-desc">Slow HTTP connection flood</div></div>
+                            </div>
+                            <!-- ── Network ── -->
+                            <div class="atk-group-label">Network</div>
+                            <div class="atk-item" data-attack="brute" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-key"></i></span>
+                                <div><div class="atk-name">Brute Force</div><div class="atk-desc">Auth strength test</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="port" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-network-wired"></i></span>
+                                <div><div class="atk-name">Port Scan</div><div class="atk-desc">Open port discovery</div></div>
                             </div>
                         </div>
                     </div>
-
-                    <!-- Parameters -->
                     <div class="glass-card">
-                        <div class="glass-card-header"><i class="fas fa-sliders"></i> Parameters</div>
-                        <div class="glass-card-body">
+                        <div class="card-head"><i class="fas fa-sliders"></i> Parameters</div>
+                        <div class="card-body">
                             <form id="attack-form" onsubmit="return false;">
                                 <input type="hidden" id="attack-type-input" value="ddos">
-
                                 <div class="field">
-                                    <label class="field-label" for="url-input"><i class="fas fa-globe"></i> Target URL / Host</label>
-                                    <input class="field-input" type="text" id="url-input" placeholder="https://example.com" required>
+                                    <label class="flabel" for="url-input">Target URL / Host</label>
+                                    <input class="finput" type="text" id="url-input" placeholder="https://example.com" required>
                                 </div>
-
                                 <div class="field-row">
                                     <div class="field" id="intensity-group">
-                                        <label class="field-label" for="intensity-input"><i class="fas fa-gauge-high"></i> Intensity (req/s)</label>
-                                        <input class="field-input" type="number" id="intensity-input" min="1" max="100" value="5">
+                                        <label class="flabel" for="intensity-input">Intensity (req/s)</label>
+                                        <input class="finput" type="number" id="intensity-input" min="1" max="100" value="5">
                                     </div>
                                     <div class="field">
-                                        <label class="field-label" for="duration-input"><i class="fas fa-clock"></i> Duration (sec)</label>
-                                        <input class="field-input" type="number" id="duration-input" min="5" max="300" value="30">
+                                        <label class="flabel" for="duration-input">Duration (sec)</label>
+                                        <input class="finput" type="number" id="duration-input" min="5" max="300" value="30">
                                     </div>
                                 </div>
-
                                 <div class="field" id="threads-group">
-                                    <label class="field-label" for="threads-input"><i class="fas fa-microchip"></i> Threads</label>
-                                    <input class="field-input" type="number" id="threads-input" min="1" max="50" value="10">
+                                    <label class="flabel" for="threads-input">Threads</label>
+                                    <input class="finput" type="number" id="threads-input" min="1" max="50" value="10">
                                 </div>
-
                                 <div id="brute-fields" style="display:none">
                                     <div class="field">
-                                        <label class="field-label" for="username-input">Username</label>
-                                        <input class="field-input" type="text" id="username-input" value="admin">
+                                        <label class="flabel" for="username-input">Username</label>
+                                        <input class="finput" type="text" id="username-input" value="admin">
                                     </div>
                                     <div class="field">
-                                        <label class="field-label" for="wordlist-input">Wordlist Path (Optional)</label>
-                                        <input class="field-input" type="text" id="wordlist-input" placeholder="C:\path\to\passwords.txt">
+                                        <label class="flabel" for="wordlist-input">Wordlist Path (Optional)</label>
+                                        <input class="finput" type="text" id="wordlist-input" placeholder="C:\path\to\passwords.txt">
                                     </div>
                                 </div>
-
                                 <div id="port-fields" style="display:none">
                                     <div class="field">
-                                        <label class="field-label" for="port-input">Target Port (Optional)</label>
-                                        <input class="field-input" type="number" id="port-input" min="1" max="65535" placeholder="e.g. 80">
+                                        <label class="flabel" for="port-input">Target Port</label>
+                                        <input class="finput" type="number" id="port-input" min="1" max="65535" placeholder="e.g. 80">
                                     </div>
                                 </div>
-
-                                <div class="action-bar">
-                                    <button class="btn btn-primary" id="start-attack">
-                                        <i class="fas fa-play"></i> Launch Test
-                                    </button>
-                                    <button class="btn btn-danger" id="stop-attack" disabled>
-                                        <i class="fas fa-stop"></i> Stop
-                                    </button>
+                                <div class="btn-row">
+                                    <button class="btn-primary" id="start-attack"><i class="fas fa-play"></i> Launch</button>
+                                    <button class="btn-danger" id="stop-attack" disabled><i class="fas fa-stop"></i> Stop</button>
                                 </div>
                             </form>
                         </div>
@@ -275,37 +258,183 @@
                 </div>
             </section>
 
+            <!-- ─── Red Team ─── -->
+            <section id="redteam-page" class="page">
+                <div class="page-header">
+                    <h1>Red Team</h1>
+                    <p>Advanced offensive technique generators</p>
+                </div>
+                <div class="recon-grid">
+                    <!-- Phishing -->
+                    <div class="glass-card">
+                        <div class="card-head"><i class="fas fa-envelope-open-text"></i> Phishing Generator</div>
+                        <div class="card-body">
+                            <div class="field">
+                                <label class="flabel">Target Domain</label>
+                                <input class="finput" type="text" id="phish-target" placeholder="example.com">
+                            </div>
+                            <div class="field-row">
+                                <div class="field">
+                                    <label class="flabel">Brand</label>
+                                    <select class="finput" id="phish-brand">
+                                        <option>Microsoft</option><option>Google</option><option>Apple</option><option>PayPal</option><option>LinkedIn</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label class="flabel">Lure Type</label>
+                                    <select class="finput" id="phish-lure">
+                                        <option value="password_expiry">Password Expiry</option>
+                                        <option value="invoice">Invoice</option>
+                                        <option value="mfa_alert">MFA Alert</option>
+                                        <option value="it_helpdesk">IT Helpdesk</option>
+                                        <option value="sharepoint">SharePoint</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <button class="btn-primary" id="run-phishing"><i class="fas fa-play"></i> Generate</button>
+                            <div class="result-box" id="phishing-result"></div>
+                        </div>
+                    </div>
+                    <!-- Persistence -->
+                    <div class="glass-card">
+                        <div class="card-head"><i class="fas fa-ghost"></i> Persistence Builder</div>
+                        <div class="card-body">
+                            <div class="field">
+                                <label class="flabel">OS</label>
+                                <select class="finput" id="persist-os">
+                                    <option value="windows">Windows</option>
+                                    <option value="linux">Linux</option>
+                                    <option value="macos">macOS</option>
+                                </select>
+                            </div>
+                            <div class="field-row">
+                                <div class="field">
+                                    <label class="flabel">LHOST</label>
+                                    <input class="finput" type="text" id="persist-lhost" value="10.10.10.10">
+                                </div>
+                                <div class="field">
+                                    <label class="flabel">LPORT</label>
+                                    <input class="finput" type="text" id="persist-lport" value="4444">
+                                </div>
+                            </div>
+                            <button class="btn-primary" id="run-persistence"><i class="fas fa-play"></i> Generate</button>
+                            <div class="result-box" id="persistence-result"></div>
+                        </div>
+                    </div>
+                    <!-- PrivEsc -->
+                    <div class="glass-card">
+                        <div class="card-head"><i class="fas fa-arrow-up-right-dots"></i> PrivEsc Checklist</div>
+                        <div class="card-body">
+                            <div class="field">
+                                <label class="flabel">Target OS</label>
+                                <select class="finput" id="privesc-os">
+                                    <option value="windows">Windows</option>
+                                    <option value="linux">Linux</option>
+                                </select>
+                            </div>
+                            <button class="btn-primary" id="run-privesc"><i class="fas fa-play"></i> Generate</button>
+                            <div class="result-box" id="privesc-result"></div>
+                        </div>
+                    </div>
+                    <!-- Lateral Movement -->
+                    <div class="glass-card">
+                        <div class="card-head"><i class="fas fa-arrows-left-right"></i> Lateral Movement</div>
+                        <div class="card-body">
+                            <div class="field-row">
+                                <div class="field">
+                                    <label class="flabel">Target IP</label>
+                                    <input class="finput" type="text" id="lat-ip" value="192.168.1.100">
+                                </div>
+                                <div class="field">
+                                    <label class="flabel">Domain</label>
+                                    <input class="finput" type="text" id="lat-domain" value="CORP">
+                                </div>
+                            </div>
+                            <div class="field-row">
+                                <div class="field">
+                                    <label class="flabel">Username</label>
+                                    <input class="finput" type="text" id="lat-user" value="administrator">
+                                </div>
+                                <div class="field">
+                                    <label class="flabel">LHOST</label>
+                                    <input class="finput" type="text" id="lat-lhost" value="10.10.10.10">
+                                </div>
+                            </div>
+                            <button class="btn-primary" id="run-lateral"><i class="fas fa-play"></i> Generate</button>
+                            <div class="result-box" id="lateral-result"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ─── Recon ─── -->
+            <section id="recon-page" class="page">
+                <div class="page-header">
+                    <h1>Recon &amp; OSINT</h1>
+                    <p>Passive reconnaissance and intelligence gathering</p>
+                </div>
+                <div class="recon-tools">
+                    <!-- Target input shared -->
+                    <div class="glass-card recon-target-card">
+                        <div class="card-body recon-target-row">
+                            <div class="field" style="flex:1;margin:0">
+                                <label class="flabel">Target Domain / URL</label>
+                                <input class="finput" type="text" id="recon-target" placeholder="example.com or https://example.com">
+                            </div>
+                            <div class="recon-btn-group">
+                                <button class="btn-sm" id="run-dns">DNS</button>
+                                <button class="btn-sm" id="run-whois">WHOIS</button>
+                                <button class="btn-sm" id="run-ssl">SSL</button>
+                                <button class="btn-sm" id="run-headers">Headers</button>
+                                <button class="btn-sm" id="run-fingerprint">Fingerprint</button>
+                                <button class="btn-sm" id="run-subdomains">Subdomains</button>
+                                <button class="btn-sm" id="run-dorks">Dorks</button>
+                                <button class="btn-sm" id="run-zonetransfer">Zone Xfer</button>
+                                <button class="btn-sm" id="run-waf">WAF</button>
+                                <button class="btn-sm" id="run-ratelimit">Rate Limit</button>
+                                <button class="btn-sm" id="run-breaches">Breaches</button>
+                                <button class="btn-sm" id="run-ioc">IOC</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="glass-card">
+                        <div class="card-head"><i class="fas fa-terminal"></i> Results <span id="recon-active-tool" style="margin-left:8px;font-weight:400;opacity:.5"></span></div>
+                        <div class="log-box" id="recon-output" style="min-height:320px;height:auto;font-size:.75rem"></div>
+                    </div>
+                </div>
+            </section>
+
             <!-- ─── Findings ─── -->
-            <section id="vulnerabilities-page" class="page-content">
-                <header class="page-header">
-                    <h1>Security <span class="gradient-text">Findings</span></h1>
+            <section id="vulnerabilities-page" class="page">
+                <div class="page-header">
+                    <h1>Findings</h1>
                     <p>Detected vulnerabilities from test runs</p>
-                </header>
+                </div>
                 <div class="glass-card">
-                    <div class="glass-card-header"><i class="fas fa-triangle-exclamation"></i> Real-time Findings</div>
-                    <div class="glass-card-body" id="vulnerabilities-container">
+                    <div class="card-head"><i class="fas fa-triangle-exclamation"></i> Vulnerability Log</div>
+                    <div class="card-body" id="vulnerabilities-container">
                         <div class="empty-state">
-                            <i class="fas fa-shield-check empty-icon"></i>
-                            <p class="empty-title">No findings yet</p>
-                            <p class="empty-desc">Run a test to discover vulnerabilities</p>
+                            <i class="fas fa-shield-check empty-ico"></i>
+                            <p>No findings yet</p>
+                            <small>Run a test to discover vulnerabilities</small>
                         </div>
                     </div>
                 </div>
             </section>
 
             <!-- ─── History ─── -->
-            <section id="history-page" class="page-content">
-                <header class="page-header">
-                    <h1>Test <span class="gradient-text">History</span></h1>
+            <section id="history-page" class="page">
+                <div class="page-header">
+                    <h1>History</h1>
                     <p>Previous security test run results</p>
-                </header>
+                </div>
                 <div id="attack-history-container">
                     <div class="glass-card">
-                        <div class="glass-card-body">
+                        <div class="card-body">
                             <div class="empty-state">
-                                <i class="fas fa-clock-rotate-left empty-icon"></i>
-                                <p class="empty-title">No history yet</p>
-                                <p class="empty-desc">Completed tests appear here</p>
+                                <i class="fas fa-clock-rotate-left empty-ico"></i>
+                                <p>No history yet</p>
+                                <small>Completed tests appear here</small>
                             </div>
                         </div>
                     </div>
@@ -313,32 +442,28 @@
             </section>
 
             <!-- ─── Settings ─── -->
-            <section id="settings-page" class="page-content">
-                <header class="page-header">
-                    <h1>System <span class="gradient-text">Settings</span></h1>
+            <section id="settings-page" class="page">
+                <div class="page-header">
+                    <h1>Settings</h1>
                     <p>Configure connection and system options</p>
-                </header>
-                <div class="settings-two-col">
+                </div>
+                <div class="two-col">
                     <div class="glass-card">
-                        <div class="glass-card-header"><i class="fas fa-server"></i> Backend Connection</div>
-                        <div class="glass-card-body">
+                        <div class="card-head"><i class="fas fa-server"></i> Backend Connection</div>
+                        <div class="card-body">
                             <div class="field">
-                                <label class="field-label" for="backend-url-input"><i class="fas fa-link"></i> Hugging Face Space URL</label>
-                                <input class="field-input" type="text" id="backend-url-input" placeholder="username-space.hf.space">
-                                <span class="field-hint">Leave blank to use the default backend. Enter a custom host to override.</span>
+                                <label class="flabel" for="backend-url-input">Hugging Face Space URL</label>
+                                <input class="finput" type="text" id="backend-url-input" placeholder="username-space.hf.space">
+                                <span class="hint">Leave blank to use the default backend.</span>
                             </div>
-                            <button class="btn btn-primary" id="btn-save-backend">
-                                <i class="fas fa-floppy-disk"></i> Save &amp; Reconnect
-                            </button>
+                            <button class="btn-primary" id="btn-save-backend"><i class="fas fa-floppy-disk"></i> Save &amp; Reconnect</button>
                         </div>
                     </div>
                     <div class="glass-card">
-                        <div class="glass-card-header"><i class="fas fa-database"></i> Data Management</div>
-                        <div class="glass-card-body">
-                            <p class="field-hint" style="margin-bottom:20px">Reset all metrics, logs, vulnerability findings, and test history from the backend.</p>
-                            <button class="btn btn-danger" id="btn-reset-all">
-                                <i class="fas fa-arrows-rotate"></i> Reset All Data
-                            </button>
+                        <div class="card-head"><i class="fas fa-database"></i> Data Management</div>
+                        <div class="card-body">
+                            <p class="hint" style="margin-bottom:20px">Reset all metrics, logs, and findings from the backend.</p>
+                            <button class="btn-danger" id="btn-reset-all"><i class="fas fa-arrows-rotate"></i> Reset All Data</button>
                         </div>
                     </div>
                 </div>
@@ -348,5 +473,93 @@
     </div>
 
     <script src="/static/app.js"></script>
+    <script>
+    // ── Recon & Red Team UI handlers ────────────────────────────────────
+    const BACKEND = () => localStorage.getItem('backendHost') ? `https://${localStorage.getItem('backendHost')}` : '';
+
+    async function callRecon(endpoint, body = {}) {
+        const base = BACKEND();
+        if (!base) { document.getElementById('recon-output').innerHTML = '<div class="log-line log-error">› No backend configured. Go to Settings.</div>'; return null; }
+        document.getElementById('recon-output').innerHTML = '<div class="log-line log-info">› Running... please wait.</div>';
+        try {
+            const r = await fetch(`${base}/api/recon/${endpoint}`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ target: document.getElementById('recon-target').value, ...body })
+            });
+            return await r.json();
+        } catch(e) {
+            document.getElementById('recon-output').innerHTML = `<div class="log-line log-error">› Error: ${e.message}</div>`;
+            return null;
+        }
+    }
+
+    function showReconResult(data, tool) {
+        document.getElementById('recon-active-tool').textContent = `— ${tool}`;
+        const box = document.getElementById('recon-output');
+        if (!data) return;
+        box.innerHTML = `<pre class="recon-pre">${JSON.stringify(data, null, 2)}</pre>`;
+    }
+
+    document.getElementById('run-dns').onclick = async () => showReconResult(await callRecon('dns'), 'DNS Lookup');
+    document.getElementById('run-whois').onclick = async () => showReconResult(await callRecon('whois'), 'WHOIS');
+    document.getElementById('run-ssl').onclick = async () => showReconResult(await callRecon('ssl'), 'SSL/TLS');
+    document.getElementById('run-headers').onclick = async () => showReconResult(await callRecon('headers'), 'HTTP Headers');
+    document.getElementById('run-fingerprint').onclick = async () => showReconResult(await callRecon('fingerprint'), 'Fingerprint');
+    document.getElementById('run-subdomains').onclick = async () => showReconResult(await callRecon('subdomains'), 'Subdomains');
+    document.getElementById('run-dorks').onclick = async () => showReconResult(await callRecon('dorks'), 'Google Dorks');
+    document.getElementById('run-zonetransfer').onclick = async () => showReconResult(await callRecon('zonetransfer'), 'Zone Transfer');
+    document.getElementById('run-waf').onclick = async () => showReconResult(await callRecon('waf'), 'WAF Detection');
+    document.getElementById('run-ratelimit').onclick = async () => showReconResult(await callRecon('ratelimit'), 'Rate Limit');
+    document.getElementById('run-breaches').onclick = async () => showReconResult(await callRecon('breaches'), 'Breach Check');
+    document.getElementById('run-ioc').onclick = async () => showReconResult(await callRecon('ioc'), 'IOC / Threat Intel');
+
+    async function callRedTeam(endpoint, body) {
+        const base = BACKEND();
+        if (!base) return null;
+        try {
+            const r = await fetch(`${base}/api/redteam/${endpoint}`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            return await r.json();
+        } catch(e) { return {error: e.message}; }
+    }
+
+    function showRedTeamResult(data, elId) {
+        const el = document.getElementById(elId);
+        if (!data) return;
+        el.innerHTML = `<pre class="recon-pre">${JSON.stringify(data, null, 2)}</pre>`;
+    }
+
+    document.getElementById('run-phishing').onclick = async () => {
+        const d = await callRedTeam('phishing', {
+            target: document.getElementById('phish-target').value,
+            options: { brand: document.getElementById('phish-brand').value, lure: document.getElementById('phish-lure').value }
+        });
+        showRedTeamResult(d, 'phishing-result');
+    };
+    document.getElementById('run-persistence').onclick = async () => {
+        const d = await callRedTeam('persistence', {
+            os_type: document.getElementById('persist-os').value,
+            options: { lhost: document.getElementById('persist-lhost').value, lport: document.getElementById('persist-lport').value }
+        });
+        showRedTeamResult(d, 'persistence-result');
+    };
+    document.getElementById('run-privesc').onclick = async () => {
+        const d = await callRedTeam('privesc', { os_type: document.getElementById('privesc-os').value });
+        showRedTeamResult(d, 'privesc-result');
+    };
+    document.getElementById('run-lateral').onclick = async () => {
+        const d = await callRedTeam('lateral', {
+            options: {
+                target_ip: document.getElementById('lat-ip').value,
+                domain: document.getElementById('lat-domain').value,
+                username: document.getElementById('lat-user').value,
+                lhost: document.getElementById('lat-lhost').value
+            }
+        });
+        showRedTeamResult(d, 'lateral-result');
+    };
+    </script>
 </body>
 </html>
