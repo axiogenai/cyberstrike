@@ -297,9 +297,7 @@ function addToAttackHistory(attack) {
     attackHistoryContainer.insertBefore(historyItem, attackHistoryContainer.firstChild);
 }
 
-// Chart defaults — monochrome palette
-Chart.defaults.color = 'rgba(255,255,255,0.4)';
-Chart.defaults.borderColor = 'rgba(255,255,255,0.07)';
+// Note: Chart.defaults are set inside initCharts() after Chart.js is confirmed loaded.
 
 const CHART_OPTS = {
     responsive: true,
@@ -321,6 +319,13 @@ const CHART_OPTS = {
 
 // Initialize ChartJS
 function initCharts() {
+    if (!responseTimeChartEl || !requestRateChartEl) return;
+    if (typeof Chart === 'undefined') return;
+
+    // Monochrome defaults — set here, after Chart.js is loaded
+    Chart.defaults.color = 'rgba(255,255,255,0.4)';
+    Chart.defaults.borderColor = 'rgba(255,255,255,0.07)';
+
     const responseTimeCtx = responseTimeChartEl.getContext('2d');
     window.responseTimeChart = new Chart(responseTimeCtx, {
         type: 'line',
@@ -437,10 +442,13 @@ async function stopAttack() {
     }
 }
 
-// Clear UI logs
-document.getElementById('clear-log').addEventListener('click', () => {
-    logContainer.innerHTML = '';
-});
+// Clear UI logs — null-guarded
+const clearLogBtn = document.getElementById('clear-log');
+if (clearLogBtn) {
+    clearLogBtn.addEventListener('click', () => {
+        if (logContainer) logContainer.innerHTML = '';
+    });
+}
 
 // Full state reset
 async function resetAllData() {
@@ -489,10 +497,11 @@ if (saveBackendBtn) {
     });
 }
 
-// Attach control event listeners
-startAttackBtn.addEventListener('click', startAttack);
-stopAttackBtn.addEventListener('click', stopAttack);
-document.getElementById('btn-reset-all').addEventListener('click', resetAllData);
+// Attach control event listeners — null-guarded so missing elements never crash the script
+if (startAttackBtn) startAttackBtn.addEventListener('click', startAttack);
+if (stopAttackBtn)  stopAttackBtn.addEventListener('click', stopAttack);
+const resetAllBtn = document.getElementById('btn-reset-all');
+if (resetAllBtn) resetAllBtn.addEventListener('click', resetAllData);
 
 // Fetch initial status on load
 async function fetchStatus() {
