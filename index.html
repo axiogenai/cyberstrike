@@ -248,6 +248,116 @@
                                         <input class="finput" type="number" id="port-input" min="1" max="65535" placeholder="e.g. 80">
                                     </div>
                                 </div>
+                                <div id="sql-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                    <div class="field-row">
+                                        <div class="field">
+                                            <label class="flabel">Injection Point</label>
+                                            <select class="finput">
+                                                <option>URL Parameters</option>
+                                                <option>Headers (User-Agent, Referer)</option>
+                                                <option>Cookies</option>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label class="flabel">Technique</label>
+                                            <select class="finput">
+                                                <option>Auto-Detect All</option>
+                                                <option>Error-Based</option>
+                                                <option>Time-Based Blind</option>
+                                                <option>Boolean-Based Blind</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="field">
+                                        <label class="flabel">Risk Level</label>
+                                        <select class="finput">
+                                            <option>Safe (Non-destructive payloads)</option>
+                                            <option>Aggressive (May cause DB corruption)</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div id="xss-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                    <div class="field-row">
+                                        <div class="field">
+                                            <label class="flabel">Vector</label>
+                                            <select class="finput">
+                                                <option>Reflected (GET/POST)</option>
+                                                <option>Stored (Persistent)</option>
+                                                <option>DOM-Based</option>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label class="flabel">WAF Evasion</label>
+                                            <select class="finput">
+                                                <option>Standard</option>
+                                                <option>Obfuscated (Hex/Unicode)</option>
+                                                <option>Polyglot Payloads</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="cmd-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                    <div class="field-row">
+                                        <div class="field">
+                                            <label class="flabel">Target OS</label>
+                                            <select class="finput">
+                                                <option>Linux / Unix</option>
+                                                <option>Windows</option>
+                                                <option>Auto-Detect</option>
+                                            </select>
+                                        </div>
+                                        <div class="field">
+                                            <label class="flabel">Execution Method</label>
+                                            <select class="finput">
+                                                <option>Blind (Time-delay)</option>
+                                                <option>Out-of-band (OOB)</option>
+                                                <option>Direct Output</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="ssrf-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                    <div class="field">
+                                        <label class="flabel">Target Internal Service / IP</label>
+                                        <input class="finput" type="text" placeholder="e.g. 169.254.169.254 (AWS Metadata)">
+                                    </div>
+                                    <div class="field">
+                                        <label class="flabel">OOB Callback Server (Optional)</label>
+                                        <input class="finput" type="text" placeholder="http://your-collaborator-url.com">
+                                    </div>
+                                </div>
+
+                                <div id="traversal-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                    <div class="field-row">
+                                        <div class="field">
+                                            <label class="flabel">Traversal Depth</label>
+                                            <input class="finput" type="number" min="1" max="15" value="6">
+                                        </div>
+                                        <div class="field">
+                                            <label class="flabel">Target File</label>
+                                            <select class="finput">
+                                                <option>/etc/passwd (Linux)</option>
+                                                <option>C:\Windows\win.ini (Windows)</option>
+                                                <option>Custom file...</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div id="xxe-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                    <div class="field">
+                                        <label class="flabel">Expected Content-Type</label>
+                                        <select class="finput">
+                                            <option>application/xml</option>
+                                            <option>text/xml</option>
+                                            <option>application/json (JSON to XML conversion)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
                                 <div class="btn-row">
                                     <button class="btn-primary" id="start-attack"><i class="fas fa-play"></i> Launch</button>
                                     <button class="btn-danger" id="stop-attack" disabled><i class="fas fa-stop"></i> Stop</button>
@@ -472,7 +582,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=5"></script>
+    <script src="/static/app.js?v=9"></script>
 
 </body>
 </html>
