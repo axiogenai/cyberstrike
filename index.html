@@ -3,31 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CyberStrike Suite — Security Testing Dashboard</title>
-    <meta name="description" content="Professional security testing dashboard with real-time metrics, vulnerability detection and attack simulation.">
+    <title>CyberStrike Suite — Enterprise Security Telemetry &amp; Audit Platform</title>
+    <meta name="description" content="Enterprise security posture, vulnerability verification, and passive reconnaissance command center.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link rel="stylesheet" href="/static/style.css?v=15">
+    <link rel="stylesheet" href="/static/style.css?v=20">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
-    <!-- Background noise -->
+    <!-- Ambient architectural grid & subtle noise -->
     <div class="bg-base" aria-hidden="true"></div>
+    <div class="bg-grid" aria-hidden="true"></div>
 
-    <!-- Topbar — brand + status + theme toggle -->
+    <!-- ─── Top Command Header ─── -->
     <header class="topbar">
         <div class="topbar-brand">
-            <div class="brand-mark"><i data-lucide="shield" class="lucide-sm"></i></div>
-            <span class="brand-name">CyberStrike <strong>Suite</strong></span>
-            <span class="bklit-pill">v2.4 Enterprise</span>
+            <div class="brand-mark">
+                <i data-lucide="shield-check" class="lucide-sm"></i>
+            </div>
+            <div class="brand-meta">
+                <div class="brand-title-row">
+                    <span class="brand-name">CyberStrike <strong>Suite</strong></span>
+                    <span class="bklit-pill">v2.5 Core</span>
+                </div>
+                <span class="brand-sub">Security Engineering &amp; Telemetry</span>
+            </div>
         </div>
+
+        <div class="topbar-center">
+            <div class="telemetry-strip">
+                <div class="tstrip-item">
+                    <i data-lucide="zap" class="lucide-xs tstrip-amber"></i>
+                    <span class="tstrip-label">Avg Latency</span>
+                    <strong class="tstrip-val" id="top-avg-latency">0.0 ms</strong>
+                </div>
+                <div class="tstrip-divider"></div>
+                <div class="tstrip-item">
+                    <i data-lucide="shield-alert" class="lucide-xs"></i>
+                    <span class="tstrip-label">Findings</span>
+                    <strong class="tstrip-val" id="top-findings-count">0</strong>
+                </div>
+                <div class="tstrip-divider"></div>
+                <div class="tstrip-item">
+                    <i data-lucide="server" class="lucide-xs"></i>
+                    <span class="tstrip-label">Node</span>
+                    <strong class="tstrip-val" id="top-node-host">Local</strong>
+                </div>
+            </div>
+        </div>
+
         <div class="topbar-right">
-            <button class="btn-ghost-sm" id="theme-toggle" type="button" aria-label="Toggle Light/Dark Theme" title="Switch Theme">
+            <button class="btn-ghost-sm" id="theme-toggle" type="button" aria-label="Toggle Light/Dark Theme" title="Switch Light / Dark Mode">
                 <i class="fas fa-sun" id="theme-icon"></i>
                 <span id="theme-label">Light</span>
             </button>
@@ -40,400 +71,516 @@
 
     <div class="shell">
 
-        <!-- Sidebar — single source of navigation -->
+        <!-- ─── Architectural Sidebar ─── -->
         <aside class="sidebar">
             <div class="sidebar-section">
-                <p class="sidebar-label">Monitoring</p>
+                <p class="sidebar-label">Telemetry &amp; Overview</p>
                 <a class="slink active" href="#" data-page="dashboard">
-                    <i data-lucide="layout-dashboard" class="lucide-nav"></i> <span>Dashboard</span>
+                    <i data-lucide="layout-grid" class="lucide-nav"></i>
+                    <span>Command Center</span>
                 </a>
             </div>
+
             <div class="sidebar-section">
-                <p class="sidebar-label">Security Suites</p>
+                <p class="sidebar-label">Assessment Suites</p>
                 <a class="slink" href="#" data-page="attacks">
-                    <i data-lucide="crosshair" class="lucide-nav"></i> <span>Test Modules</span>
+                    <i data-lucide="crosshair" class="lucide-nav"></i>
+                    <span>Test Modules</span>
+                    <span class="nav-pill">16</span>
                 </a>
                 <a class="slink" href="#" data-page="redteam">
-                    <i data-lucide="terminal" class="lucide-nav"></i> <span>Red Team</span>
+                    <i data-lucide="terminal-square" class="lucide-nav"></i>
+                    <span>Red Team Ops</span>
                 </a>
             </div>
+
             <div class="sidebar-section">
-                <p class="sidebar-label">Intelligence</p>
+                <p class="sidebar-label">Threat Intelligence</p>
                 <a class="slink" href="#" data-page="recon">
-                    <i data-lucide="radar" class="lucide-nav"></i> <span>Recon &amp; OSINT</span>
+                    <i data-lucide="radar" class="lucide-nav"></i>
+                    <span>Recon &amp; OSINT</span>
+                    <span class="nav-pill">15</span>
                 </a>
                 <a class="slink" href="#" data-page="vulnerabilities">
-                    <i data-lucide="shield-alert" class="lucide-nav"></i> <span>Findings</span>
+                    <i data-lucide="bug" class="lucide-nav"></i>
+                    <span>Findings</span>
+                    <span class="nav-pill nav-pill--amber" id="nav-vuln-count">0</span>
                 </a>
                 <a class="slink" href="#" data-page="history">
-                    <i data-lucide="history" class="lucide-nav"></i> <span>History</span>
+                    <i data-lucide="clock" class="lucide-nav"></i>
+                    <span>Audit History</span>
+                    <span class="nav-pill" id="nav-history-count">0</span>
                 </a>
             </div>
+
             <div class="sidebar-section sidebar-bottom">
-                <p class="sidebar-label">System</p>
+                <p class="sidebar-label">Configuration</p>
                 <a class="slink" href="#" data-page="settings">
-                    <i data-lucide="sliders-horizontal" class="lucide-nav"></i> <span>Settings</span>
+                    <i data-lucide="sliders-horizontal" class="lucide-nav"></i>
+                    <span>System Settings</span>
                 </a>
+                <div class="sidebar-foot-card">
+                    <div class="sfc-row">
+                        <span class="sfc-label">Engine Protocol</span>
+                        <span class="sfc-badge">WS / REST</span>
+                    </div>
+                    <div class="sfc-host" id="sidebar-backend-host">127.0.0.1:8081</div>
+                </div>
             </div>
         </aside>
 
-        <!-- Content -->
+        <!-- ─── Main Content Viewport ─── -->
         <main class="content">
 
-            <!-- ─── Dashboard (ThreeUI + Magic UI Bento + Bklit UI + Aceternity Spotlight) ─── -->
+            <!-- ================================================================
+                 1. COMMAND CENTER DASHBOARD
+                 (ThreeUI Spatial Scene + Magic UI Bento + Bklit UI + Aceternity)
+                 ================================================================ -->
             <section id="dashboard-page" class="page active">
-                <!-- ThreeUI 3D Spatial Telemetry Hero Banner -->
-                <div class="glass-card spotlight-card threeui-banner">
-                    <div class="threeui-copy">
+
+                <!-- ThreeUI Spatial Hero Card -->
+                <div class="glass-card spotlight-card threeui-hero">
+                    <div class="threeui-hero-left">
                         <div class="bklit-eyebrow">
-                            <i data-lucide="cpu" class="lucide-xs"></i>
-                            <span>SPATIAL TELEMETRY ENGINE</span>
+                            <i data-lucide="orbit" class="lucide-xs"></i>
+                            <span>THREEUI SPATIAL TELEMETRY ENGINE</span>
                         </div>
-                        <h1>Security Posture &amp; Telemetry</h1>
-                        <p>Real-time request inspection, passive header hardening, and vulnerability verification.</p>
+                        <h1 class="hero-title">Security Posture &amp; Live Verification</h1>
+                        <p class="hero-desc">
+                            High-precision application security verification, passive 802.11w &amp; HTTP header auditing, and real-time response latency analytics.
+                        </p>
+                        <div class="hero-actions">
+                            <button class="btn-primary" type="button" id="hero-btn-modules">
+                                <i data-lucide="crosshair" class="lucide-xs"></i>
+                                <span>Configure Test Module</span>
+                            </button>
+                            <button class="btn-secondary" type="button" id="hero-btn-recon">
+                                <i data-lucide="radar" class="lucide-xs"></i>
+                                <span>Launch Recon Workbench</span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="threeui-stage" id="threeui-canvas-container" aria-label="3D Spatial Telemetry Node"></div>
+
+                    <div class="threeui-hero-right">
+                        <div class="threeui-stage" id="threeui-canvas-container" aria-label="3D Spatial Telemetry Node"></div>
+                        <div class="threeui-hud">
+                            <div class="hud-chip">
+                                <span class="hud-dot"></span>
+                                <span>WEBGL DPR CLAMPED [1, 1.8]</span>
+                            </div>
+                            <div class="hud-chip">
+                                <span>MESH: GEODESIC ICOSAHEDRON</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Magic UI Bento KPI Grid with Bklit UI Trend Badges & Aceternity Spotlight -->
+                <!-- Magic UI Bento KPI Grid (4 Cards) -->
                 <div class="stats-grid bento-stats">
                     <div class="stat-card spotlight-card">
                         <div class="stat-top">
-                            <span class="stat-label">Total Requests</span>
-                            <span class="bklit-badge"><i data-lucide="trending-up" class="lucide-xs"></i> Telemetry</span>
+                            <span class="stat-label">Total Dispatched</span>
+                            <span class="bklit-badge"><i data-lucide="trending-up" class="lucide-xs"></i> Packets</span>
                         </div>
-                        <div class="stat-val" id="total-requests" data-ticker="0">0</div>
-                        <div class="stat-sub">Cumulative dispatched probes</div>
+                        <div class="stat-val" id="total-requests">0</div>
+                        <div class="stat-bar"><div class="stat-bar-fill" id="bar-total" style="width: 100%"></div></div>
+                        <div class="stat-sub">Cumulative HTTP/TCP probes</div>
                     </div>
+
                     <div class="stat-card spotlight-card">
                         <div class="stat-top">
-                            <span class="stat-label">Successful</span>
-                            <span class="bklit-badge success"><i data-lucide="check-circle-2" class="lucide-xs"></i> 2xx / 3xx</span>
+                            <span class="stat-label">Successful (2xx/3xx)</span>
+                            <span class="bklit-badge success"><i data-lucide="check-circle-2" class="lucide-xs"></i> <span id="success-rate-badge">100%</span></span>
                         </div>
-                        <div class="stat-val success" id="successful-requests" data-ticker="0">0</div>
-                        <div class="stat-sub">Validated HTTP responses</div>
+                        <div class="stat-val success" id="successful-requests">0</div>
+                        <div class="stat-bar"><div class="stat-bar-fill fill-success" id="bar-success" style="width: 100%"></div></div>
+                        <div class="stat-sub">Validated endpoint responses</div>
                     </div>
+
                     <div class="stat-card spotlight-card">
                         <div class="stat-top">
-                            <span class="stat-label">Errors / Blocks</span>
-                            <span class="bklit-badge danger"><i data-lucide="shield-alert" class="lucide-xs"></i> 4xx / 5xx</span>
+                            <span class="stat-label">Dropped / Blocked</span>
+                            <span class="bklit-badge danger"><i data-lucide="shield-x" class="lucide-xs"></i> <span id="error-rate-badge">0%</span></span>
                         </div>
-                        <div class="stat-val danger" id="failed-requests" data-ticker="0">0</div>
-                        <div class="stat-sub">WAF drops &amp; timeouts</div>
+                        <div class="stat-val danger" id="failed-requests">0</div>
+                        <div class="stat-bar"><div class="stat-bar-fill fill-danger" id="bar-failed" style="width: 0%"></div></div>
+                        <div class="stat-sub">WAF blocks &amp; socket timeouts</div>
                     </div>
+
                     <div class="stat-card spotlight-card">
                         <div class="stat-top">
-                            <span class="stat-label">Engine Link</span>
-                            <span class="bklit-badge"><i data-lucide="radio" class="lucide-xs"></i> WebSocket</span>
+                            <span class="stat-label">Telemetry Stream</span>
+                            <span class="bklit-badge"><i data-lucide="radio" class="lucide-xs"></i> Full-Duplex</span>
                         </div>
-                        <div class="stat-val stat-val--sm">
-                            <span class="status-dot ready" id="card-status-dot"></span> <span id="card-status-text">Ready</span>
+                        <div class="stat-val stat-val--sm" style="margin-top: 6px; margin-bottom: 6px;">
+                            <span class="status-dot ready" id="card-status-dot"></span>
+                            <span id="card-status-text">Ready</span>
                         </div>
-                        <div class="stat-sub">Real-time full-duplex stream</div>
+                        <div class="stat-bar"><div class="stat-bar-fill fill-amber" style="width: 100%"></div></div>
+                        <div class="stat-sub">Active WebSocket channel</div>
                     </div>
                 </div>
 
-                <!-- Bklit UI Analytics Charts -->
+                <!-- Bklit UI Dual Analytics Charts -->
                 <div class="two-col">
                     <div class="glass-card spotlight-card">
                         <div class="card-head">
-                            <i data-lucide="activity" class="lucide-xs"></i>
-                            <span>Response Latency (ms)</span>
-                            <span class="bklit-badge" style="margin-left:auto">Monotone Bézier</span>
+                            <div class="card-head-title">
+                                <i data-lucide="activity" class="lucide-xs"></i>
+                                <span>Response Time Distribution</span>
+                            </div>
+                            <div class="card-head-meta">
+                                <span class="bklit-badge" id="avg-latency-badge">Avg: 0.0 ms</span>
+                                <span class="bklit-badge" id="peak-latency-badge">Peak: 0.0 ms</span>
+                            </div>
                         </div>
-                        <div class="card-body"><div class="chart-wrap"><canvas id="response-time-chart"></canvas></div></div>
+                        <div class="card-body">
+                            <div class="chart-wrap"><canvas id="response-time-chart"></canvas></div>
+                        </div>
                     </div>
+
                     <div class="glass-card spotlight-card">
                         <div class="card-head">
-                            <i data-lucide="bar-chart-3" class="lucide-xs"></i>
-                            <span>Traffic Distribution</span>
-                            <span class="bklit-badge" style="margin-left:auto">Live Ratio</span>
+                            <div class="card-head-title">
+                                <i data-lucide="bar-chart-3" class="lucide-xs"></i>
+                                <span>Throughput &amp; Block Ratio</span>
+                            </div>
+                            <div class="card-head-meta">
+                                <span class="bklit-badge">2xx vs 4xx/5xx</span>
+                            </div>
                         </div>
-                        <div class="card-body"><div class="chart-wrap"><canvas id="request-rate-chart"></canvas></div></div>
+                        <div class="card-body">
+                            <div class="chart-wrap"><canvas id="request-rate-chart"></canvas></div>
+                        </div>
                     </div>
                 </div>
 
+                <!-- Bento Bottom Row: Terminal Console + Rapid Diagnostics -->
                 <div class="bento-bottom-grid">
                     <div class="glass-card spotlight-card">
                         <div class="card-head">
-                            <i data-lucide="terminal-square" class="lucide-xs"></i>
-                            <span>Activity Telemetry Stream</span>
-                            <button class="btn-ghost-sm" id="clear-log" style="margin-left:auto"><i data-lucide="trash-2" class="lucide-xs"></i> Clear</button>
+                            <div class="terminal-dots" aria-hidden="true">
+                                <span></span><span></span><span></span>
+                            </div>
+                            <i data-lucide="terminal" class="lucide-xs"></i>
+                            <span>Live Telemetry Console</span>
+                            <button class="btn-ghost-sm" id="clear-log" style="margin-left:auto">
+                                <i data-lucide="trash-2" class="lucide-xs"></i> Clear Console
+                            </button>
                         </div>
                         <div class="log-box" id="log-container">
-                            <div class="log-line log-info">[Init] System initialized. Ready for testing.</div>
+                            <div class="log-line log-info">[Init] CyberStrike Telemetry Engine initialized. Ready for verification.</div>
                         </div>
                     </div>
+
                     <div class="glass-card spotlight-card">
                         <div class="card-head">
-                            <i data-lucide="gauge" class="lucide-xs"></i>
-                            <span>Quick Diagnostics</span>
-                        </div>
-                        <div class="card-body" style="display:flex;flex-direction:column;justify-content:space-between;gap:14px">
-                            <div>
-                                <p style="margin:0;margin-bottom:10px;font-size:0.82rem;color:var(--t2)">Run a rapid target reachability and load diagnostic against an authorized IP.</p>
-                                <input type="text" id="selftest-ip-input" placeholder="e.g. 127.0.0.1" class="finput">
+                            <div class="card-head-title">
+                                <i data-lucide="gauge" class="lucide-xs"></i>
+                                <span>Rapid Reachability Diagnostic</span>
                             </div>
-                            <div style="display:flex;gap:10px">
-                                <button class="btn-primary" id="btn-selftest-start" style="flex:1;justify-content:center"><i data-lucide="play" class="lucide-xs"></i> Launch Test</button>
-                                <button class="btn-danger" id="btn-selftest-stop" disabled style="min-width:96px;justify-content:center"><i data-lucide="square" class="lucide-xs"></i> Stop</button>
+                            <span class="bklit-badge">Self-Test</span>
+                        </div>
+                        <div class="card-body diagnostic-panel">
+                            <p class="diag-desc">
+                                Execute a controlled TCP/HTTP reachability and load verification pass against a local or authorized endpoint IP.
+                            </p>
+                            <div class="field" style="margin-bottom: 12px;">
+                                <label class="flabel" for="selftest-ip-input">Target Host / IPv4</label>
+                                <input type="text" id="selftest-ip-input" placeholder="e.g. 127.0.0.1" value="127.0.0.1" class="finput">
+                            </div>
+                            <div class="diag-actions">
+                                <button class="btn-primary" id="btn-selftest-start" style="flex:1;justify-content:center">
+                                    <i data-lucide="play" class="lucide-xs"></i> Run Diagnostic
+                                </button>
+                                <button class="btn-danger" id="btn-selftest-stop" disabled style="min-width:96px;justify-content:center">
+                                    <i data-lucide="square" class="lucide-xs"></i> Stop
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- ─── Attacks ─── -->
+            <!-- ================================================================
+                 2. TEST MODULES PAGE (#attacks-page)
+                 ================================================================ -->
             <section id="attacks-page" class="page">
-                <div class="page-header">
-                    <h1>Attacks</h1>
-                    <p>Configure and launch security tests</p>
+                <div class="page-header-bar">
+                    <div>
+                        <div class="bklit-eyebrow"><i data-lucide="layers" class="lucide-xs"></i><span>VERIFICATION SUITE</span></div>
+                        <h1>Security Test Modules</h1>
+                        <p>Select an assessment vector and configure request parameters</p>
+                    </div>
+                    <div class="preset-group">
+                        <span class="preset-label">Quick Target:</span>
+                        <button type="button" class="btn-ghost-sm" id="preset-local-target">
+                            <i data-lucide="server" class="lucide-xs"></i> Honeypot (:8083)
+                        </button>
+                    </div>
                 </div>
+
                 <div class="two-col-fixed">
-                    <div class="glass-card">
-                        <div class="card-head"><i class="fas fa-list-check"></i> Test Type</div>
+                    <!-- Left Selector Column -->
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <div class="card-head-title">
+                                <i data-lucide="list-filter" class="lucide-xs"></i>
+                                <span>Assessment Vectors</span>
+                            </div>
+                            <span class="bklit-badge">16 Modules</span>
+                        </div>
                         <div class="card-body atk-list">
                             <!-- ── Web App ── -->
                             <div class="atk-group-label">Web Application</div>
                             <div class="atk-item selected" data-attack="ddos" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-bolt"></i></span>
-                                <div><div class="atk-name">DDoS Simulation</div><div class="atk-desc">High-volume request flood</div></div>
+                                <div><div class="atk-name">DDoS Simulation</div><div class="atk-desc">High-volume load test</div></div>
                             </div>
                             <div class="atk-item" data-attack="sql" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-database"></i></span>
-                                <div><div class="atk-name">SQL Injection</div><div class="atk-desc">Database query injection</div></div>
+                                <div><div class="atk-name">SQL Injection</div><div class="atk-desc">Differential &amp; error SQLi</div></div>
                             </div>
                             <div class="atk-item" data-attack="xss" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-code"></i></span>
-                                <div><div class="atk-name">XSS Attack</div><div class="atk-desc">Cross-site scripting probe</div></div>
+                                <div><div class="atk-name">XSS Probe</div><div class="atk-desc">Reflected &amp; Stored XSS</div></div>
                             </div>
                             <div class="atk-item" data-attack="csrf" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-shield-halved"></i></span>
-                                <div><div class="atk-name">CSRF Attack</div><div class="atk-desc">Request forgery test</div></div>
+                                <div><div class="atk-name">CSRF Audit</div><div class="atk-desc">Anti-CSRF token verification</div></div>
                             </div>
                             <div class="atk-item" data-attack="idor" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-lock-open"></i></span>
-                                <div><div class="atk-name">IDOR</div><div class="atk-desc">Insecure direct object ref</div></div>
+                                <div><div class="atk-name">IDOR</div><div class="atk-desc">Object reference enumeration</div></div>
                             </div>
                             <div class="atk-item" data-attack="redirect" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-arrow-up-right-from-square"></i></span>
-                                <div><div class="atk-name">Open Redirect</div><div class="atk-desc">Unvalidated redirect test</div></div>
+                                <div><div class="atk-name">Open Redirect</div><div class="atk-desc">Unvalidated redirect check</div></div>
                             </div>
                             <div class="atk-item" data-attack="header_inj" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-file-code"></i></span>
-                                <div><div class="atk-name">Header Injection</div><div class="atk-desc">HTTP header injection</div></div>
+                                <div><div class="atk-name">Header Injection</div><div class="atk-desc">CRLF response splitting check</div></div>
                             </div>
                             <!-- ── Server-Side ── -->
                             <div class="atk-group-label">Server-Side</div>
                             <div class="atk-item" data-attack="cmd" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-terminal"></i></span>
-                                <div><div class="atk-name">Command Injection</div><div class="atk-desc">OS command exec test</div></div>
+                                <div><div class="atk-name">Command Injection</div><div class="atk-desc">OS command execution probe</div></div>
                             </div>
                             <div class="atk-item" data-attack="ssrf" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-globe"></i></span>
-                                <div><div class="atk-name">SSRF</div><div class="atk-desc">Server-side request forgery</div></div>
+                                <div><div class="atk-name">SSRF</div><div class="atk-desc">Internal metadata reachability</div></div>
                             </div>
                             <div class="atk-item" data-attack="xxe" tabindex="0" role="button">
-                                <span class="atk-ico"><i class="fas fa-file-xml"></i></span>
-                                <div><div class="atk-name">XXE Injection</div><div class="atk-desc">XML external entity</div></div>
+                                <span class="atk-ico"><i class="fas fa-file-code"></i></span>
+                                <div><div class="atk-name">XXE Injection</div><div class="atk-desc">XML external entity parser check</div></div>
                             </div>
                             <div class="atk-item" data-attack="traversal" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-folder-open"></i></span>
-                                <div><div class="atk-name">Directory Traversal</div><div class="atk-desc">Path traversal / LFI test</div></div>
+                                <div><div class="atk-name">Directory Traversal</div><div class="atk-desc">Path traversal / LFI probe</div></div>
                             </div>
                             <div class="atk-item" data-attack="slowloris" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-hourglass-half"></i></span>
-                                <div><div class="atk-name">Slowloris</div><div class="atk-desc">Slow HTTP connection flood</div></div>
+                                <div><div class="atk-name">Slowloris</div><div class="atk-desc">Keep-alive connection hold test</div></div>
                             </div>
                             <!-- ── Network ── -->
-                            <div class="atk-group-label">Network</div>
+                            <div class="atk-group-label">Network &amp; Auth</div>
                             <div class="atk-item" data-attack="brute" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-key"></i></span>
-                                <div><div class="atk-name">Brute Force</div><div class="atk-desc">Auth strength test</div></div>
+                                <div><div class="atk-name">Brute Force</div><div class="atk-desc">Auth rate-limit &amp; lockout test</div></div>
                             </div>
                             <div class="atk-item" data-attack="port" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-network-wired"></i></span>
-                                <div><div class="atk-name">Port Scan</div><div class="atk-desc">Open port discovery</div></div>
+                                <div><div class="atk-name">Port Scan</div><div class="atk-desc">TCP service discovery</div></div>
                             </div>
                             <div class="atk-item" data-attack="ip_stress" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-server"></i></span>
-                                <div><div class="atk-name">IP Stress Test</div><div class="atk-desc">TCP/UDP load on IP</div></div>
+                                <div><div class="atk-name">IP Stress Test</div><div class="atk-desc">TCP/UDP socket load test</div></div>
                             </div>
                             <div class="atk-item" data-attack="phone_probe" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-phone-volume"></i></span>
-                                <div><div class="atk-name">Phone OSINT Probe</div><div class="atk-desc">Carrier & geo intel</div></div>
+                                <div><div class="atk-name">Phone OSINT Probe</div><div class="atk-desc">Carrier &amp; numbering plan lookup</div></div>
                             </div>
                         </div>
                     </div>
-                    <div class="glass-card">
-                        <div class="card-head"><i class="fas fa-sliders"></i> Parameters</div>
+
+                    <!-- Right Inspector Column -->
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <div class="card-head-title">
+                                <i data-lucide="sliders" class="lucide-xs"></i>
+                                <span>Module Configuration</span>
+                            </div>
+                            <span class="bklit-badge" id="active-module-badge">DDOS</span>
+                        </div>
                         <div class="card-body">
                             <form id="attack-form" onsubmit="return false;">
                                 <input type="hidden" id="attack-type-input" value="ddos">
                                 <div class="field">
-                                    <label class="flabel" for="url-input">Target URL / Host</label>
-                                    <input class="finput" type="text" id="url-input" placeholder="https://example.com" required>
+                                    <label class="flabel" for="url-input">Target Endpoint URL / Host</label>
+                                    <input class="finput" type="text" id="url-input" placeholder="http://127.0.0.1:8083" value="http://127.0.0.1:8083" required>
+                                    <span class="hint">Specify full protocol (`http://` or `https://`) for web modules, or bare IP/hostname for network scans.</span>
                                 </div>
                                 <div class="field-row">
                                     <div class="field" id="intensity-group">
-                                        <label class="flabel" for="intensity-input">Intensity (req/s)</label>
-                                        <input class="finput" type="number" id="intensity-input" min="1" max="1000" value="1000">
+                                        <label class="flabel" for="intensity-input">Rate Limit / Intensity (req/s)</label>
+                                        <input class="finput" type="number" id="intensity-input" min="1" max="1000" value="50">
                                     </div>
                                     <div class="field">
-                                        <label class="flabel" for="duration-input">Duration (sec)</label>
+                                        <label class="flabel" for="duration-input">Max Duration (sec)</label>
                                         <input class="finput" type="number" id="duration-input" min="5" max="300" value="30">
                                     </div>
                                 </div>
                                 <div class="field" id="threads-group">
-                                    <label class="flabel" for="threads-input">Threads</label>
-                                    <input class="finput" type="number" id="threads-input" min="1" max="200" value="200">
+                                    <label class="flabel" for="threads-input">Concurrent Workers (Threads)</label>
+                                    <input class="finput" type="number" id="threads-input" min="1" max="200" value="20">
                                 </div>
-                                <div id="brute-fields" style="display:none">
+
+                                <div id="brute-fields" class="sub-config-panel" style="display:none">
                                     <div class="field">
-                                        <label class="flabel" for="username-input">Username</label>
+                                        <label class="flabel" for="username-input">Target Username</label>
                                         <input class="finput" type="text" id="username-input" value="admin">
                                     </div>
                                     <div class="field">
-                                        <label class="flabel" for="wordlist-input">Wordlist Path (Optional)</label>
-                                        <input class="finput" type="text" id="wordlist-input" placeholder="C:\path\to\passwords.txt">
+                                        <label class="flabel" for="wordlist-input">Custom Wordlist Path (Optional)</label>
+                                        <input class="finput" type="text" id="wordlist-input" placeholder="Leave blank for built-in common credential list">
                                     </div>
                                 </div>
-                                <div id="port-fields" style="display:none">
+
+                                <div id="port-fields" class="sub-config-panel" style="display:none">
                                     <div class="field">
-                                        <label class="flabel" for="port-input">Target Port</label>
-                                        <input class="finput" type="number" id="port-input" min="1" max="65535" placeholder="e.g. 80">
+                                        <label class="flabel" for="port-input">Specific Target Port (Optional)</label>
+                                        <input class="finput" type="number" id="port-input" min="1" max="65535" placeholder="Leave blank to scan common service ports">
                                     </div>
                                 </div>
-                                <div id="sql-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+
+                                <div id="sql-fields" class="sub-config-panel" style="display:none">
                                     <div class="field-row">
                                         <div class="field">
-                                            <label class="flabel">Injection Point</label>
+                                            <label class="flabel">Injection Surface</label>
                                             <select class="finput">
-                                                <option>URL Parameters</option>
-                                                <option>Headers (User-Agent, Referer)</option>
-                                                <option>Cookies</option>
+                                                <option>URL Query Parameters &amp; REST Forms</option>
+                                                <option>HTTP Headers (User-Agent, Referer)</option>
+                                                <option>Session Cookies</option>
                                             </select>
                                         </div>
                                         <div class="field">
-                                            <label class="flabel">Technique</label>
+                                            <label class="flabel">Detection Engine</label>
                                             <select class="finput">
-                                                <option>Auto-Detect All</option>
-                                                <option>Error-Based</option>
+                                                <option>Baseline Differential + Error Signatures</option>
+                                                <option>Error-Based Only</option>
                                                 <option>Time-Based Blind</option>
                                                 <option>Boolean-Based Blind</option>
                                             </select>
                                         </div>
                                     </div>
-                                    <div class="field">
-                                        <label class="flabel">Risk Level</label>
+                                    <div class="field" style="margin-bottom:0">
+                                        <label class="flabel">Safety Profile</label>
                                         <select class="finput">
-                                            <option>Safe (Non-destructive payloads)</option>
-                                            <option>Aggressive (May cause DB corruption)</option>
+                                            <option>Safe (Read-only diagnostic probes)</option>
                                         </select>
                                     </div>
                                 </div>
-                                
-                                <div id="xss-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid var(--gb)">
+
+                                <div id="xss-fields" class="sub-config-panel" style="display:none">
                                     <div class="field-row">
                                         <div class="field">
-                                            <label class="flabel" for="xss-vector-select">Vector</label>
+                                            <label class="flabel" for="xss-vector-select">XSS Vector Mode</label>
                                             <select class="finput" id="xss-vector-select">
-                                                <option value="xss">Reflected (GET/POST)</option>
-                                                <option value="stored_xss">Stored XSS (Persistent)</option>
-                                                <option value="xss">DOM-Based</option>
+                                                <option value="xss">Reflected XSS (GET / Query)</option>
+                                                <option value="stored_xss">Stored XSS (Persistent POST + Verify)</option>
+                                                <option value="xss">DOM-Based Context</option>
                                             </select>
                                         </div>
                                         <div class="field">
-                                            <label class="flabel">WAF Evasion</label>
+                                            <label class="flabel">Encoding Profile</label>
                                             <select class="finput">
-                                                <option>Standard</option>
-                                                <option>Obfuscated (Hex/Unicode)</option>
-                                                <option>Polyglot Payloads</option>
+                                                <option>Standard Unescaped Canary</option>
+                                                <option>Obfuscated (Hex / Unicode)</option>
+                                                <option>Polyglot Context</option>
                                             </select>
                                         </div>
                                     </div>
-                                    <div class="field" style="margin-top:12px">
-                                        <label class="flabel">Custom Alert Message / Payload</label>
-                                        <input class="finput" type="text" id="xss-payload-input" placeholder="e.g. improvements nedded" value="improvements nedded">
+                                    <div class="field" style="margin-bottom:0">
+                                        <label class="flabel" for="xss-payload-input">Custom Canary / Alert Message</label>
+                                        <input class="finput" type="text" id="xss-payload-input" placeholder="e.g. cyberstrike_audit" value="improvements nedded">
                                     </div>
                                 </div>
 
-                                <div id="cmd-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                <div id="cmd-fields" class="sub-config-panel" style="display:none">
                                     <div class="field-row">
-                                        <div class="field">
-                                            <label class="flabel">Target OS</label>
+                                        <div class="field" style="margin-bottom:0">
+                                            <label class="flabel">Target OS Family</label>
                                             <select class="finput">
+                                                <option>Auto-Detect (Linux &amp; Windows)</option>
                                                 <option>Linux / Unix</option>
                                                 <option>Windows</option>
-                                                <option>Auto-Detect</option>
                                             </select>
                                         </div>
-                                        <div class="field">
-                                            <label class="flabel">Execution Method</label>
+                                        <div class="field" style="margin-bottom:0">
+                                            <label class="flabel">Verification Method</label>
                                             <select class="finput">
-                                                <option>Blind (Time-delay)</option>
-                                                <option>Out-of-band (OOB)</option>
-                                                <option>Direct Output</option>
+                                                <option>Direct Output + Time-Delay Differential</option>
+                                                <option>Blind (Time-Delay)</option>
                                             </select>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div id="ssrf-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                <div id="ssrf-fields" class="sub-config-panel" style="display:none">
                                     <div class="field">
-                                        <label class="flabel">Target Internal Service / IP</label>
-                                        <input class="finput" type="text" placeholder="e.g. 169.254.169.254 (AWS Metadata)">
+                                        <label class="flabel">Internal Metadata / Loopback Probe</label>
+                                        <input class="finput" type="text" placeholder="e.g. 169.254.169.254 (Cloud Metadata)">
                                     </div>
-                                    <div class="field">
+                                    <div class="field" style="margin-bottom:0">
                                         <label class="flabel">OOB Callback Server (Optional)</label>
-                                        <input class="finput" type="text" placeholder="http://your-collaborator-url.com">
+                                        <input class="finput" type="text" placeholder="https://collaborator.example.com">
                                     </div>
                                 </div>
 
-                                <div id="traversal-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                <div id="traversal-fields" class="sub-config-panel" style="display:none">
                                     <div class="field-row">
-                                        <div class="field">
-                                            <label class="flabel">Traversal Depth</label>
+                                        <div class="field" style="margin-bottom:0">
+                                            <label class="flabel">Max Directory Depth</label>
                                             <input class="finput" type="number" min="1" max="15" value="6">
                                         </div>
-                                        <div class="field">
-                                            <label class="flabel">Target File</label>
+                                        <div class="field" style="margin-bottom:0">
+                                            <label class="flabel">Canary File Target</label>
                                             <select class="finput">
+                                                <option>/etc/passwd &amp; win.ini (Cross-platform)</option>
                                                 <option>/etc/passwd (Linux)</option>
                                                 <option>C:\Windows\win.ini (Windows)</option>
-                                                <option>Custom file...</option>
                                             </select>
                                         </div>
                                     </div>
                                 </div>
-                                
-                                <div id="xxe-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
-                                    <div class="field">
-                                        <label class="flabel">Expected Content-Type</label>
+
+                                <div id="xxe-fields" class="sub-config-panel" style="display:none">
+                                    <div class="field" style="margin-bottom:0">
+                                        <label class="flabel">XML Content-Type Header</label>
                                         <select class="finput">
                                             <option>application/xml</option>
                                             <option>text/xml</option>
-                                            <option>application/json (JSON to XML conversion)</option>
                                         </select>
                                     </div>
                                 </div>
 
-                                <div id="header_inj-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
-                                    <div class="field">
-                                        <label class="flabel">Custom Injection Payload</label>
+                                <div id="header_inj-fields" class="sub-config-panel" style="display:none">
+                                    <div class="field" style="margin-bottom:0">
+                                        <label class="flabel" for="header-payload-input">Custom Header Injection Canary</label>
                                         <input class="finput" type="text" id="header-payload-input" placeholder="e.g. Set-Cookie: user=admin" value="Set-Cookie: user=admin">
-                                        <span class="hint">Payload will be prepended with CRLF (%0d%0a) automatically.</span>
+                                        <span class="hint">Encoded CRLF (`%0d%0a`) sequences are tested automatically against redirect and header reflection endpoints.</span>
                                     </div>
                                 </div>
 
-                                <div id="ip-stress-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                <div id="ip-stress-fields" class="sub-config-panel" style="display:none">
                                     <div class="field-row">
-                                        <div class="field">
-                                            <label class="flabel">Target IP Address</label>
-                                            <input class="finput" type="text" id="ip-stress-target" placeholder="e.g. 192.168.1.1">
+                                        <div class="field" style="margin-bottom:0">
+                                            <label class="flabel" for="ip-stress-target">Target Host / IP</label>
+                                            <input class="finput" type="text" id="ip-stress-target" placeholder="e.g. 127.0.0.1">
                                         </div>
-                                        <div class="field">
-                                            <label class="flabel">Protocol</label>
+                                        <div class="field" style="margin-bottom:0">
+                                            <label class="flabel" for="ip-stress-proto">Transport Protocol</label>
                                             <select class="finput" id="ip-stress-proto">
                                                 <option value="tcp">TCP</option>
                                                 <option value="udp">UDP</option>
@@ -443,17 +590,21 @@
                                     </div>
                                 </div>
 
-                                <div id="phone-probe-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
-                                    <div class="field">
-                                        <label class="flabel">Target Phone Number</label>
+                                <div id="phone-probe-fields" class="sub-config-panel" style="display:none">
+                                    <div class="field" style="margin-bottom:0">
+                                        <label class="flabel" for="phone-probe-target">Target E.164 Phone Number</label>
                                         <input class="finput" type="text" id="phone-probe-target" placeholder="e.g. +14155552671">
-                                        <span class="hint">Includes country code, carrier, geo, timezone, and validity probing.</span>
+                                        <span class="hint">Performs passive numbering plan validation, carrier lookup, region geocoding, and timezone mapping.</span>
                                     </div>
                                 </div>
 
                                 <div class="btn-row">
-                                    <button class="btn-primary" id="start-attack"><i class="fas fa-play"></i> Launch</button>
-                                    <button class="btn-danger" id="stop-attack" disabled><i class="fas fa-stop"></i> Stop</button>
+                                    <button class="btn-primary" id="start-attack">
+                                        <i data-lucide="play" class="lucide-xs"></i> Launch Verification
+                                    </button>
+                                    <button class="btn-danger" id="stop-attack" disabled>
+                                        <i data-lucide="square" class="lucide-xs"></i> Abort Run
+                                    </button>
                                 </div>
                             </form>
                         </div>
@@ -461,49 +612,62 @@
                 </div>
             </section>
 
-            <!-- ─── Red Team ─── -->
+            <!-- ================================================================
+                 3. RED TEAM OPS PAGE (#redteam-page)
+                 ================================================================ -->
             <section id="redteam-page" class="page">
-                <div class="page-header">
-                    <h1>Red Team</h1>
-                    <p>Advanced offensive technique generators</p>
+                <div class="page-header-bar">
+                    <div>
+                        <div class="bklit-eyebrow"><i data-lucide="shield-alert" class="lucide-xs"></i><span>ADVERSARY EMULATION</span></div>
+                        <h1>Red Team Operations</h1>
+                        <p>Authorized adversary simulation checklists and defensive detection references</p>
+                    </div>
                 </div>
+
                 <div class="recon-grid">
                     <!-- Phishing -->
-                    <div class="glass-card">
-                        <div class="card-head"><i class="fas fa-envelope-open-text"></i> Phishing Generator</div>
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <div class="card-head-title"><i data-lucide="mail-warning" class="lucide-xs"></i><span>Phishing Awareness Template</span></div>
+                            <span class="bklit-badge">Social Eng</span>
+                        </div>
                         <div class="card-body">
                             <div class="field">
-                                <label class="flabel">Target Domain</label>
-                                <input class="finput" type="text" id="phish-target" placeholder="example.com">
+                                <label class="flabel" for="phish-target">Target Organization Domain</label>
+                                <input class="finput" type="text" id="phish-target" placeholder="example.com" value="example.com">
                             </div>
                             <div class="field-row">
                                 <div class="field">
-                                    <label class="flabel">Brand</label>
+                                    <label class="flabel" for="phish-brand">Template Brand</label>
                                     <select class="finput" id="phish-brand">
                                         <option>Microsoft</option><option>Google</option><option>Apple</option><option>PayPal</option><option>LinkedIn</option>
                                     </select>
                                 </div>
                                 <div class="field">
-                                    <label class="flabel">Lure Type</label>
+                                    <label class="flabel" for="phish-lure">Scenario</label>
                                     <select class="finput" id="phish-lure">
                                         <option value="password_expiry">Password Expiry</option>
-                                        <option value="invoice">Invoice</option>
-                                        <option value="mfa_alert">MFA Alert</option>
+                                        <option value="invoice">Invoice Notice</option>
+                                        <option value="mfa_alert">MFA Enrollment</option>
                                         <option value="it_helpdesk">IT Helpdesk</option>
-                                        <option value="sharepoint">SharePoint</option>
+                                        <option value="sharepoint">Shared Document</option>
                                     </select>
                                 </div>
                             </div>
-                            <button class="btn-primary" id="run-phishing"><i class="fas fa-play"></i> Generate</button>
-                            <div class="result-box" id="phishing-result"></div>
+                            <button class="btn-primary" id="run-phishing"><i data-lucide="file-text" class="lucide-xs"></i> Generate Template</button>
+                            <div class="result-box" id="phishing-result">Ready to generate template...</div>
                         </div>
                     </div>
+
                     <!-- Persistence -->
-                    <div class="glass-card">
-                        <div class="card-head"><i class="fas fa-ghost"></i> Persistence Builder</div>
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <div class="card-head-title"><i data-lucide="anchor" class="lucide-xs"></i><span>Persistence Audit Reference</span></div>
+                            <span class="bklit-badge">MITRE T1547</span>
+                        </div>
                         <div class="card-body">
                             <div class="field">
-                                <label class="flabel">OS</label>
+                                <label class="flabel" for="persist-os">Operating System</label>
                                 <select class="finput" id="persist-os">
                                     <option value="windows">Windows</option>
                                     <option value="linux">Linux</option>
@@ -512,164 +676,224 @@
                             </div>
                             <div class="field-row">
                                 <div class="field">
-                                    <label class="flabel">LHOST</label>
+                                    <label class="flabel" for="persist-lhost">Audit Collector IP</label>
                                     <input class="finput" type="text" id="persist-lhost" value="10.10.10.10">
                                 </div>
                                 <div class="field">
-                                    <label class="flabel">LPORT</label>
+                                    <label class="flabel" for="persist-lport">Port</label>
                                     <input class="finput" type="text" id="persist-lport" value="4444">
                                 </div>
                             </div>
-                            <button class="btn-primary" id="run-persistence"><i class="fas fa-play"></i> Generate</button>
-                            <div class="result-box" id="persistence-result"></div>
+                            <button class="btn-primary" id="run-persistence"><i data-lucide="file-code" class="lucide-xs"></i> Load Reference</button>
+                            <div class="result-box" id="persistence-result">Select OS to inspect persistence artifacts &amp; detection paths...</div>
                         </div>
                     </div>
+
                     <!-- PrivEsc -->
-                    <div class="glass-card">
-                        <div class="card-head"><i class="fas fa-arrow-up-right-dots"></i> PrivEsc Checklist</div>
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <div class="card-head-title"><i data-lucide="arrow-up-right" class="lucide-xs"></i><span>Privilege Escalation Audit</span></div>
+                            <span class="bklit-badge">Enumeration</span>
+                        </div>
                         <div class="card-body">
                             <div class="field">
-                                <label class="flabel">Target OS</label>
+                                <label class="flabel" for="privesc-os">Target Platform</label>
                                 <select class="finput" id="privesc-os">
-                                    <option value="windows">Windows</option>
-                                    <option value="linux">Linux</option>
+                                    <option value="windows">Windows Server / Workstation</option>
+                                    <option value="linux">Linux Distribution</option>
                                 </select>
                             </div>
-                            <button class="btn-primary" id="run-privesc"><i class="fas fa-play"></i> Generate</button>
-                            <div class="result-box" id="privesc-result"></div>
+                            <button class="btn-primary" id="run-privesc"><i data-lucide="list-checks" class="lucide-xs"></i> Load Checklist</button>
+                            <div class="result-box" id="privesc-result">Select platform to load privilege escalation audit checks...</div>
                         </div>
                     </div>
+
                     <!-- Lateral Movement -->
-                    <div class="glass-card">
-                        <div class="card-head"><i class="fas fa-arrows-left-right"></i> Lateral Movement</div>
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <div class="card-head-title"><i data-lucide="network" class="lucide-xs"></i><span>Lateral Movement Reference</span></div>
+                            <span class="bklit-badge">Internal Net</span>
+                        </div>
                         <div class="card-body">
                             <div class="field-row">
                                 <div class="field">
-                                    <label class="flabel">Target IP</label>
+                                    <label class="flabel" for="lat-ip">Target Host IP</label>
                                     <input class="finput" type="text" id="lat-ip" value="192.168.1.100">
                                 </div>
                                 <div class="field">
-                                    <label class="flabel">Domain</label>
+                                    <label class="flabel" for="lat-domain">AD Domain</label>
                                     <input class="finput" type="text" id="lat-domain" value="CORP">
                                 </div>
                             </div>
                             <div class="field-row">
                                 <div class="field">
-                                    <label class="flabel">Username</label>
+                                    <label class="flabel" for="lat-user">Account</label>
                                     <input class="finput" type="text" id="lat-user" value="administrator">
                                 </div>
                                 <div class="field">
-                                    <label class="flabel">LHOST</label>
+                                    <label class="flabel" for="lat-lhost">Operator Host</label>
                                     <input class="finput" type="text" id="lat-lhost" value="10.10.10.10">
                                 </div>
                             </div>
-                            <button class="btn-primary" id="run-lateral"><i class="fas fa-play"></i> Generate</button>
-                            <div class="result-box" id="lateral-result"></div>
+                            <button class="btn-primary" id="run-lateral"><i data-lucide="git-branch" class="lucide-xs"></i> Load Playbook</button>
+                            <div class="result-box" id="lateral-result">Configure parameters to inspect lateral movement playbooks...</div>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- ─── Recon ─── -->
+            <!-- ================================================================
+                 4. RECON & OSINT WORKBENCH (#recon-page)
+                 ================================================================ -->
             <section id="recon-page" class="page">
-                <div class="page-header">
-                    <h1>Recon &amp; OSINT</h1>
-                    <p>Passive reconnaissance and intelligence gathering</p>
+                <div class="page-header-bar">
+                    <div>
+                        <div class="bklit-eyebrow"><i data-lucide="radar" class="lucide-xs"></i><span>PASSIVE INTELLIGENCE WORKBENCH</span></div>
+                        <h1>Reconnaissance &amp; Posture Auditing</h1>
+                        <p>15 non-intrusive OSINT, DNS, TLS, HTTP Header, and 802.11w wireless compliance auditors</p>
+                    </div>
                 </div>
+
                 <div class="recon-tools">
-                    <!-- Target input shared -->
-                    <div class="glass-card recon-target-card">
-                        <div class="card-body recon-target-row">
-                            <div class="field" style="flex:1;margin:0">
-                                <label class="flabel">Target (Domain / URL / IP / Phone)</label>
-                                <input class="finput" type="text" id="recon-target" placeholder="example.com, 8.8.8.8, or +1234567890">
+                    <div class="glass-card spotlight-card recon-target-card">
+                        <div class="card-body">
+                            <div class="recon-input-bar">
+                                <div class="field" style="flex:1;margin:0">
+                                    <label class="flabel" for="recon-target">Target Domain / URL / IPv4 / E.164 Phone</label>
+                                    <input class="finput" type="text" id="recon-target" placeholder="example.com, 127.0.0.1:8083, or +14155552671" value="http://127.0.0.1:8083">
+                                </div>
                             </div>
-                            <div class="recon-btn-group">
-                                <button class="btn-sm" id="run-dns">DNS</button>
-                                <button class="btn-sm" id="run-whois">WHOIS</button>
-                                <button class="btn-sm" id="run-ssl">SSL</button>
-                                <button class="btn-sm" id="run-ip">IP Info</button>
-                                <button class="btn-sm" id="run-phone">Phone Info</button>
-                                <button class="btn-sm" id="run-headers">Headers</button>
-                                <button class="btn-sm" id="run-fingerprint">Fingerprint</button>
-                                <button class="btn-sm" id="run-subdomains">Subdomains</button>
-                                <button class="btn-sm" id="run-dorks">Dorks</button>
-                                <button class="btn-sm" id="run-zonetransfer">Zone Xfer</button>
-                                <button class="btn-sm" id="run-waf">WAF</button>
-                                <button class="btn-sm" id="run-ratelimit">Rate Limit</button>
-                                <button class="btn-sm" id="run-breaches">Breaches</button>
-                                <button class="btn-sm" id="run-ioc">IOC</button>
-                                <button class="btn-sm" id="run-wifi-audit">Wi-Fi Audit</button>
+
+                            <div class="recon-btn-group" style="margin-top: 14px;">
+                                <button class="btn-sm" id="run-dns"><i data-lucide="globe" class="lucide-xs"></i> DNS Records</button>
+                                <button class="btn-sm" id="run-whois"><i data-lucide="file-text" class="lucide-xs"></i> WHOIS / RDAP</button>
+                                <button class="btn-sm" id="run-ssl"><i data-lucide="lock" class="lucide-xs"></i> SSL / TLS Cert</button>
+                                <button class="btn-sm" id="run-ip"><i data-lucide="map-pin" class="lucide-xs"></i> IP Geo Info</button>
+                                <button class="btn-sm" id="run-phone"><i data-lucide="phone" class="lucide-xs"></i> Phone OSINT</button>
+                                <button class="btn-sm" id="run-headers"><i data-lucide="shield-check" class="lucide-xs"></i> Security Headers</button>
+                                <button class="btn-sm" id="run-fingerprint"><i data-lucide="cpu" class="lucide-xs"></i> Tech Fingerprint</button>
+                                <button class="btn-sm" id="run-subdomains"><i data-lucide="git-fork" class="lucide-xs"></i> Subdomains</button>
+                                <button class="btn-sm" id="run-dorks"><i data-lucide="search" class="lucide-xs"></i> Search Dorks</button>
+                                <button class="btn-sm" id="run-zonetransfer"><i data-lucide="server" class="lucide-xs"></i> Zone Xfer (AXFR)</button>
+                                <button class="btn-sm" id="run-waf"><i data-lucide="shield" class="lucide-xs"></i> WAF Detection</button>
+                                <button class="btn-sm" id="run-ratelimit"><i data-lucide="gauge" class="lucide-xs"></i> Rate Limit</button>
+                                <button class="btn-sm" id="run-breaches"><i data-lucide="database" class="lucide-xs"></i> Breach Check</button>
+                                <button class="btn-sm" id="run-ioc"><i data-lucide="crosshair" class="lucide-xs"></i> IOC Threat Intel</button>
+                                <button class="btn-sm" id="run-wifi-audit"><i data-lucide="wifi" class="lucide-xs"></i> Wi-Fi 802.11w Audit</button>
                             </div>
                         </div>
                     </div>
-                    <div class="glass-card">
-                        <div class="card-head"><i class="fas fa-terminal"></i> Results <span id="recon-active-tool" style="margin-left:8px;font-weight:400;opacity:.5"></span></div>
-                        <div class="log-box" id="recon-output" style="min-height:320px;height:auto;font-size:.75rem"></div>
+
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <div class="terminal-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+                            <i data-lucide="code-2" class="lucide-xs"></i>
+                            <span>Inspector Output <span id="recon-active-tool" style="margin-left:8px;font-weight:400;opacity:.65"></span></span>
+                            <button class="btn-ghost-sm" id="copy-recon-btn" type="button" style="margin-left:auto">
+                                <i data-lucide="copy" class="lucide-xs"></i> Copy JSON
+                            </button>
+                        </div>
+                        <div class="log-box" id="recon-output" style="min-height:340px;height:auto;font-size:.78rem">
+                            <div class="log-line log-info">Select any reconnaissance module above to inspect structured telemetry output.</div>
+                        </div>
                     </div>
                 </div>
             </section>
 
-            <!-- ─── Findings ─── -->
+            <!-- ================================================================
+                 5. VULNERABILITY FINDINGS PAGE (#vulnerabilities-page)
+                 ================================================================ -->
             <section id="vulnerabilities-page" class="page">
-                <div class="page-header">
-                    <h1>Findings</h1>
-                    <p>Detected vulnerabilities from test runs</p>
+                <div class="page-header-bar">
+                    <div>
+                        <div class="bklit-eyebrow"><i data-lucide="bug" class="lucide-xs"></i><span>VERIFIED DETECTIONS</span></div>
+                        <h1>Vulnerability Findings</h1>
+                        <p>Deduplicated security weaknesses and proof-of-concept evidence captured during test runs</p>
+                    </div>
                 </div>
-                <div class="glass-card">
-                    <div class="card-head"><i class="fas fa-triangle-exclamation"></i> Vulnerability Log</div>
+                <div class="glass-card spotlight-card">
+                    <div class="card-head">
+                        <div class="card-head-title">
+                            <i data-lucide="shield-alert" class="lucide-xs"></i>
+                            <span>Verified Advisory Log</span>
+                        </div>
+                        <span class="bklit-badge danger" id="findings-header-badge">0 Findings</span>
+                    </div>
                     <div class="card-body" id="vulnerabilities-container">
                         <div class="empty-state">
-                            <i class="fas fa-shield-check empty-ico"></i>
-                            <p>No findings yet</p>
-                            <small>Run a test to discover vulnerabilities</small>
+                            <i class="fas fa-shield-halved empty-ico"></i>
+                            <p>No vulnerabilities detected yet</p>
+                            <small>Launch a test module against an authorized target to populate verified findings</small>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- ─── History ─── -->
+            <!-- ================================================================
+                 6. AUDIT HISTORY PAGE (#history-page)
+                 ================================================================ -->
             <section id="history-page" class="page">
-                <div class="page-header">
-                    <h1>History</h1>
-                    <p>Previous security test run results</p>
+                <div class="page-header-bar">
+                    <div>
+                        <div class="bklit-eyebrow"><i data-lucide="clock" class="lucide-xs"></i><span>EXECUTION ARCHIVE</span></div>
+                        <h1>Audit Run History</h1>
+                        <p>Chronological log of completed security verification sessions and request totals</p>
+                    </div>
                 </div>
                 <div id="attack-history-container">
-                    <div class="glass-card">
+                    <div class="glass-card spotlight-card">
                         <div class="card-body">
                             <div class="empty-state">
                                 <i class="fas fa-clock-rotate-left empty-ico"></i>
-                                <p>No history yet</p>
-                                <small>Completed tests appear here</small>
+                                <p>No audit runs recorded yet</p>
+                                <small>Completed module executions will be archived here automatically</small>
                             </div>
                         </div>
                     </div>
                 </div>
             </section>
 
-            <!-- ─── Settings ─── -->
+            <!-- ================================================================
+                 7. SYSTEM SETTINGS PAGE (#settings-page)
+                 ================================================================ -->
             <section id="settings-page" class="page">
-                <div class="page-header">
-                    <h1>Settings</h1>
-                    <p>Configure connection and system options</p>
+                <div class="page-header-bar">
+                    <div>
+                        <div class="bklit-eyebrow"><i data-lucide="sliders-horizontal" class="lucide-xs"></i><span>ENVIRONMENT CONFIGURATION</span></div>
+                        <h1>System Settings</h1>
+                        <p>Manage remote backend endpoints, WebSocket streams, and telemetry storage</p>
+                    </div>
                 </div>
                 <div class="two-col">
-                    <div class="glass-card">
-                        <div class="card-head"><i class="fas fa-server"></i> Backend Connection</div>
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <div class="card-head-title"><i data-lucide="server" class="lucide-xs"></i><span>Backend Engine Endpoint</span></div>
+                            <span class="bklit-badge">REST + WS</span>
+                        </div>
                         <div class="card-body">
                             <div class="field">
-                                <label class="flabel" for="backend-url-input">Hugging Face Space URL</label>
-                                <input class="finput" type="text" id="backend-url-input" placeholder="username-space.hf.space">
-                                <span class="hint">Leave blank to use the default backend.</span>
+                                <label class="flabel" for="backend-url-input">Remote Host / Hugging Face Space URL</label>
+                                <input class="finput" type="text" id="backend-url-input" placeholder="e.g. adityax26-cyberstrike-backend.hf.space">
+                                <span class="hint">Leave blank when running locally to auto-connect to the local FastAPI instance.</span>
                             </div>
-                            <button class="btn-primary" id="btn-save-backend"><i class="fas fa-floppy-disk"></i> Save &amp; Reconnect</button>
+                            <button class="btn-primary" id="btn-save-backend">
+                                <i data-lucide="save" class="lucide-xs"></i> Save &amp; Reconnect
+                            </button>
                         </div>
                     </div>
-                    <div class="glass-card">
-                        <div class="card-head"><i class="fas fa-database"></i> Data Management</div>
+
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <div class="card-head-title"><i data-lucide="database" class="lucide-xs"></i><span>Telemetry &amp; State Management</span></div>
+                            <span class="bklit-badge danger">Destructive</span>
+                        </div>
                         <div class="card-body">
-                            <p class="hint" style="margin-bottom:20px">Reset all metrics, logs, and findings from the backend.</p>
-                            <button class="btn-danger" id="btn-reset-all"><i class="fas fa-arrows-rotate"></i> Reset All Data</button>
+                            <p class="hint" style="margin-bottom:20px;font-size:12.5px;line-height:1.6;">
+                                Purge all accumulated request counters, latency samples, activity logs, and deduplicated vulnerability findings from memory.
+                            </p>
+                            <button class="btn-danger" id="btn-reset-all">
+                                <i data-lucide="rotate-ccw" class="lucide-xs"></i> Reset All Telemetry Data
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -678,7 +902,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=14"></script>
+    <script src="/static/app.js?v=20"></script>
 
 </body>
 </html>

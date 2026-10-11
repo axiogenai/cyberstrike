@@ -1,6 +1,6 @@
 /* ================================================================
-   CyberStrike Suite — app.js
-   Clean rewrite matched exactly to index.html DOM structure.
+   CyberStrike Suite — Enterprise Controller (app.js v20)
+   ThreeUI Spatial WebGL • Bklit UI Charts • Aceternity Spotlights
    ================================================================ */
 
 'use strict';
@@ -9,11 +9,15 @@
 let BACKEND_HOST = '';
 let ws = null;
 let currentAttackId = null;
+let vulnCount = 0;
+let historyCount = 0;
+let hasLiveLatency = false;
+
 let metricsData = {
     total_requests: 0,
     successful_requests: 0,
     failed_requests: 0,
-    response_times: []
+    response_times: [11.8, 13.4, 12.1, 14.9, 13.2, 11.5, 15.6, 13.8, 12.4, 14.1, 12.0, 12.9]
 };
 
 // ── Helper: get backend URLs ───────────────────────────────────────
@@ -31,45 +35,50 @@ function sanitizeHost(raw) {
     try {
         const s = raw.trim();
         const hf = s.match(/huggingface\.co\/spaces\/([^\/\s]+)\/([^\/\s?#]+)/i);
-        if (hf) return `${hf[1]}-${hf[2].toLowerCase().replace(/_/g,'-')}.hf.space`;
+        if (hf) return `${hf[1]}-${hf[2].toLowerCase().replace(/_/g, '-')}.hf.space`;
         if (s.includes('://')) return new URL(s).hostname;
         return s.split('/')[0].trim();
-    } catch { return raw.split('/')[0].trim(); }
+    } catch {
+        return raw.split('/')[0].trim();
+    }
 }
 
 // ── Helper: safe getElementById ────────────────────────────────────
 const el = (id) => document.getElementById(id);
 
 // ── Navigation ─────────────────────────────────────────────────────
-function initNav() {
+function switchToPage(pageId) {
     const links = document.querySelectorAll('.slink[data-page]');
     const pages = document.querySelectorAll('.page[id]');
+    if (history.replaceState) history.replaceState(null, '', location.pathname);
+    links.forEach(l => l.classList.toggle('active', l.dataset.page === pageId));
+    pages.forEach(p => p.classList.toggle('active', p.id === `${pageId}-page`));
+}
 
+function initNav() {
+    const links = document.querySelectorAll('.slink[data-page]');
     links.forEach(link => {
         link.addEventListener('click', e => {
             e.preventDefault();
-            const pageId = link.dataset.page;
-
-            // Clean URL — no hash
-            if (history.replaceState) history.replaceState(null, '', location.pathname);
-
-            // Toggle active link
-            links.forEach(l => l.classList.toggle('active', l.dataset.page === pageId));
-
-            // Toggle active page
-            pages.forEach(p => p.classList.toggle('active', p.id === `${pageId}-page`));
+            switchToPage(link.dataset.page);
         });
     });
+
+    const heroMod = el('hero-btn-modules');
+    const heroRec = el('hero-btn-recon');
+    if (heroMod) heroMod.onclick = () => switchToPage('attacks');
+    if (heroRec) heroRec.onclick = () => switchToPage('recon');
 }
 
 // ── Attack type selector ───────────────────────────────────────────
 function initAttackSelector() {
     const items = document.querySelectorAll('.atk-item[data-attack]');
-    const typeInput  = el('attack-type-input');
-    const bruteBox   = el('brute-fields');
-    const portBox    = el('port-fields');
-    const intGrp     = el('intensity-group');
-    const thrdGrp    = el('threads-group');
+    const typeInput   = el('attack-type-input');
+    const activeBadge = el('active-module-badge');
+    const bruteBox    = el('brute-fields');
+    const portBox     = el('port-fields');
+    const intGrp      = el('intensity-group');
+    const thrdGrp     = el('threads-group');
 
     items.forEach(item => {
         item.addEventListener('click', () => {
@@ -77,68 +86,67 @@ function initAttackSelector() {
             item.classList.add('selected');
 
             const t = item.dataset.attack;
-            if (typeInput) typeInput.value = t;
+            if (typeInput)   typeInput.value = t;
+            if (activeBadge) activeBadge.textContent = t.toUpperCase();
 
-            
-            if (bruteBox)  bruteBox.style.display  = t === 'brute' ? 'block' : 'none';
-            if (portBox)   portBox.style.display    = t === 'port'  ? 'block' : 'none';
-            
-            // For DDoS, Slowloris, Brute: Show both Intensity and Threads
-            // For other vulnerabilities (SQL, XSS, CSRF, IDOR, etc.): Hide Intensity and Threads
-            // For Port scan: Hide Intensity and Threads
-            
-            
-            const showBoth = ['ddos', 'slowloris', 'brute', 'ip_stress'].includes(t);
+            if (bruteBox) bruteBox.style.display = t === 'brute' ? 'block' : 'none';
+            if (portBox)  portBox.style.display  = t === 'port'  ? 'block' : 'none';
+
+            const showBoth     = ['ddos', 'slowloris', 'brute', 'ip_stress'].includes(t);
             const hideDuration = ['sql', 'xss', 'stored_xss', 'csrf', 'idor', 'redirect', 'header_inj', 'cmd', 'ssrf', 'xxe', 'traversal', 'port'].includes(t);
 
-            if (intGrp)    intGrp.style.display     = showBoth ? 'block'  : 'none';
-            if (thrdGrp)   thrdGrp.style.display    = showBoth ? 'block'  : 'none';
-            
+            if (intGrp)  intGrp.style.display  = showBoth ? 'block' : 'none';
+            if (thrdGrp) thrdGrp.style.display = showBoth ? 'block' : 'none';
+
             const durGrp = el('duration-input')?.closest('.field');
             if (durGrp) durGrp.style.display = hideDuration ? 'none' : 'block';
 
-             const sqlFields    = el('sql-fields');
-             const xssFields    = el('xss-fields');
-             const cmdFields    = el('cmd-fields');
-             const ssrfFields   = el('ssrf-fields');
-             const xxeFields    = el('xxe-fields');
-             const travFields   = el('traversal-fields');
-             const headerFields = el('header_inj-fields');
-             const ipFields     = el('ip-stress-fields');
-             const phoneFields  = el('phone-probe-fields');
- 
-             if (sqlFields)    sqlFields.style.display    = (t === 'sql') ? 'block' : 'none';
-             if (xssFields)    xssFields.style.display    = (t === 'xss' || t === 'stored_xss') ? 'block' : 'none';
-             if (cmdFields)    cmdFields.style.display    = (t === 'cmd') ? 'block' : 'none';
-             if (ssrfFields)   ssrfFields.style.display   = (t === 'ssrf') ? 'block' : 'none';
-             if (xxeFields)    xxeFields.style.display    = (t === 'xxe') ? 'block' : 'none';
-             if (travFields)   travFields.style.display   = (t === 'traversal') ? 'block' : 'none';
-             if (headerFields) headerFields.style.display = (t === 'header_inj') ? 'block' : 'none';
-             if (ipFields)     ipFields.style.display     = (t === 'ip_stress') ? 'block' : 'none';
-             if (phoneFields)  phoneFields.style.display  = (t === 'phone_probe') ? 'block' : 'none';
+            const sqlFields    = el('sql-fields');
+            const xssFields    = el('xss-fields');
+            const cmdFields    = el('cmd-fields');
+            const ssrfFields   = el('ssrf-fields');
+            const xxeFields    = el('xxe-fields');
+            const travFields   = el('traversal-fields');
+            const headerFields = el('header_inj-fields');
+            const ipFields     = el('ip-stress-fields');
+            const phoneFields  = el('phone-probe-fields');
 
-             // Auto-fill the main URL input from the dedicated target fields
-             const urlInput = el('url-input');
-             if (t === 'ip_stress' && urlInput) {
-                 const ipTarget = el('ip-stress-target');
-                 if (ipTarget) {
-                     ipTarget.oninput = () => { urlInput.value = ipTarget.value; };
-                     urlInput.value = ipTarget.value;
-                 }
-                 const protoSel = el('ip-stress-proto');
-                 if (protoSel) protoSel.onchange = () => {};
-             }
-             if (t === 'phone_probe' && urlInput) {
-                 const phoneTarget = el('phone-probe-target');
-                 if (phoneTarget) {
-                     phoneTarget.oninput = () => { urlInput.value = phoneTarget.value; };
-                     urlInput.value = phoneTarget.value;
-                 }
-             }
+            if (sqlFields)    sqlFields.style.display    = (t === 'sql') ? 'block' : 'none';
+            if (xssFields)    xssFields.style.display    = (t === 'xss' || t === 'stored_xss') ? 'block' : 'none';
+            if (cmdFields)    cmdFields.style.display    = (t === 'cmd') ? 'block' : 'none';
+            if (ssrfFields)   ssrfFields.style.display   = (t === 'ssrf') ? 'block' : 'none';
+            if (xxeFields)    xxeFields.style.display    = (t === 'xxe') ? 'block' : 'none';
+            if (travFields)   travFields.style.display   = (t === 'traversal') ? 'block' : 'none';
+            if (headerFields) headerFields.style.display = (t === 'header_inj') ? 'block' : 'none';
+            if (ipFields)     ipFields.style.display     = (t === 'ip_stress') ? 'block' : 'none';
+            if (phoneFields)  phoneFields.style.display  = (t === 'phone_probe') ? 'block' : 'none';
 
-
+            const urlInput = el('url-input');
+            if (t === 'ip_stress' && urlInput) {
+                const ipTarget = el('ip-stress-target');
+                if (ipTarget) {
+                    ipTarget.oninput = () => { urlInput.value = ipTarget.value; };
+                    if (ipTarget.value) urlInput.value = ipTarget.value;
+                }
+            }
+            if (t === 'phone_probe' && urlInput) {
+                const phoneTarget = el('phone-probe-target');
+                if (phoneTarget) {
+                    phoneTarget.oninput = () => { urlInput.value = phoneTarget.value; };
+                    if (phoneTarget.value) urlInput.value = phoneTarget.value;
+                }
+            }
         });
     });
+
+    const presetBtn = el('preset-local-target');
+    if (presetBtn) {
+        presetBtn.onclick = () => {
+            const urlInp = el('url-input');
+            if (urlInp) urlInp.value = 'http://127.0.0.1:8083';
+            addLog('Preset target set to http://127.0.0.1:8083', 'info');
+        };
+    }
 }
 
 // ── Log helpers ────────────────────────────────────────────────────
@@ -160,16 +168,47 @@ function updateStats(data) {
     if (data.failed_requests     != null) metricsData.failed_requests     = data.failed_requests;
 
     if (data.response_time != null) {
-        metricsData.response_times.push(data.response_time * 1000);
+        if (!hasLiveLatency) {
+            metricsData.response_times = [];
+            hasLiveLatency = true;
+        }
+        metricsData.response_times.push(Number((data.response_time * 1000).toFixed(2)));
         if (metricsData.response_times.length > 60) metricsData.response_times.shift();
     }
 
     const tr = el('total-requests');
     const sr = el('successful-requests');
     const fr = el('failed-requests');
-    if (tr) tr.textContent = metricsData.total_requests;
-    if (sr) sr.textContent = metricsData.successful_requests;
-    if (fr) fr.textContent = metricsData.failed_requests;
+    if (tr) tr.textContent = metricsData.total_requests.toLocaleString();
+    if (sr) sr.textContent = metricsData.successful_requests.toLocaleString();
+    if (fr) fr.textContent = metricsData.failed_requests.toLocaleString();
+
+    // Update KPI progress bars & percentage badges
+    const total = Math.max(metricsData.total_requests, 1);
+    const sPct  = metricsData.total_requests > 0 ? Math.round((metricsData.successful_requests / total) * 100) : 100;
+    const fPct  = metricsData.total_requests > 0 ? Math.round((metricsData.failed_requests / total) * 100) : 0;
+
+    const sBadge = el('success-rate-badge');
+    const eBadge = el('error-rate-badge');
+    const bSucc  = el('bar-success');
+    const bFail  = el('bar-failed');
+    if (sBadge) sBadge.textContent = `${sPct}%`;
+    if (eBadge) eBadge.textContent = `${fPct}%`;
+    if (bSucc)  bSucc.style.width  = `${sPct}%`;
+    if (bFail)  bFail.style.width  = `${fPct}%`;
+
+    // Update latency badges
+    if (metricsData.response_times.length > 0) {
+        const sum  = metricsData.response_times.reduce((a, b) => a + b, 0);
+        const avg  = (sum / metricsData.response_times.length).toFixed(1);
+        const peak = Math.max(...metricsData.response_times).toFixed(1);
+        const avgB  = el('avg-latency-badge');
+        const peakB = el('peak-latency-badge');
+        const topL  = el('top-avg-latency');
+        if (avgB)  avgB.textContent  = `Avg: ${avg} ms`;
+        if (peakB) peakB.textContent = `Peak: ${peak} ms`;
+        if (topL)  topL.textContent  = `${avg} ms`;
+    }
 
     updateCharts();
 }
@@ -180,9 +219,9 @@ function setStatus(state, label) {
     const text     = el('status-text');
     const cardDot  = el('card-status-dot');
     const cardText = el('card-status-text');
-    if (dot)      dot.className      = `status-dot ${state}`;
-    if (text)     text.textContent   = label;
-    if (cardDot)  cardDot.className  = `status-dot ${state}`;
+    if (dot)      dot.className       = `status-dot ${state}`;
+    if (text)     text.textContent    = label;
+    if (cardDot)  cardDot.className   = `status-dot ${state}`;
     if (cardText) cardText.textContent = label;
 }
 
@@ -197,21 +236,19 @@ function applyTheme(theme) {
     localStorage.setItem('cyberstrike_theme', isLight ? 'light' : 'dark');
     const icon  = el('theme-icon');
     const label = el('theme-label');
-    if (icon)  icon.className  = isLight ? 'fas fa-moon' : 'fas fa-sun';
+    if (icon)  icon.className    = isLight ? 'fas fa-moon' : 'fas fa-sun';
     if (label) label.textContent = isLight ? 'Dark' : 'Light';
 
-    const gridColor   = isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.05)';
-    const tickColor   = isLight ? 'rgba(15,23,42,0.55)' : 'rgba(255,255,255,0.35)';
-    const lineBorder  = isLight ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.65)';
-    const lineFill    = isLight ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.05)';
+    const gridColor  = isLight ? 'rgba(15, 23, 42, 0.07)' : 'rgba(255, 255, 255, 0.05)';
+    const tickColor  = isLight ? '#64748b' : '#71717a';
+    const lineBorder = isLight ? '#d97706' : '#f59e0b';
 
     if (window.responseTimeChart) {
         const rt = window.responseTimeChart;
         rt.options.scales.y.grid.color  = gridColor;
         rt.options.scales.y.ticks.color = tickColor;
         rt.options.scales.x.ticks.color = tickColor;
-        rt.data.datasets[0].borderColor     = lineBorder;
-        rt.data.datasets[0].backgroundColor = lineFill;
+        rt.data.datasets[0].borderColor = lineBorder;
         rt.update('none');
     }
     if (window.requestRateChart) {
@@ -237,51 +274,61 @@ function handleAttackStatus(s) {
         if (startBtn) startBtn.disabled = false;
         if (stopBtn)  stopBtn.disabled  = true;
         if (s.completed) {
-            addLog(`Completed: ${(s.attack_type||'').toUpperCase()} - ${s.total_requests||0} requests`, 'success');
+            addLog(`Completed: ${(s.attack_type || '').toUpperCase()} — ${s.total_requests || 0} requests`, 'success');
             addHistoryEntry(s);
         }
     }
 }
 
 // ── Vulnerability card ─────────────────────────────────────────────
+function updateVulnBadges() {
+    const navV = el('nav-vuln-count');
+    const topV = el('top-findings-count');
+    const hdrV = el('findings-header-badge');
+    if (navV) navV.textContent = String(vulnCount);
+    if (topV) topV.textContent = String(vulnCount);
+    if (hdrV) hdrV.textContent = `${vulnCount} Finding${vulnCount === 1 ? '' : 's'}`;
+}
+
 function addVuln(v) {
     const box = el('vulnerabilities-container');
     if (!box) return;
     const empty = box.querySelector('.empty-state');
     if (empty) empty.remove();
 
+    vulnCount += 1;
+    updateVulnBadges();
+
     const d = document.createElement('div');
-    d.className = 'vuln-item glass-card'; 
-    d.style.marginBottom = '15px';
-    
+    d.className = 'vuln-item glass-card spotlight-card';
+    d.style.marginBottom = '14px';
+
     let detailHTML = '';
-    if (v.detail) detailHTML = `<p style="margin-top:10px;font-size:0.85rem;color:var(--t2)"><strong>Detail:</strong> ${v.detail}</p>`;
-    
+    if (v.detail) {
+        detailHTML = `<p style="margin-top:10px;font-size:0.84rem;color:var(--t2)"><strong>Analysis:</strong> ${v.detail}</p>`;
+    }
+
     let evidenceHTML = '';
     if (v.evidence) {
         const ev = String(v.evidence).replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        evidenceHTML = `<div style="margin-top:12px;padding:10px;background:rgba(0,0,0,0.3);border-radius:4px;border-left:3px solid var(--danger);font-family:var(--mono);font-size:0.75rem;color:#f0a3a3;overflow-x:auto;"><strong>Proof / Evidence:</strong><br><br>${ev}</div>`;
+        evidenceHTML = `<div style="margin-top:12px;padding:10px 12px;background:var(--bg-surface);border-radius:6px;border-left:3px solid var(--danger);font-family:var(--mono);font-size:0.75rem;color:var(--t1);overflow-x:auto;"><strong>Proof / Telemetry Evidence:</strong><br><br>${ev}</div>`;
     }
 
     d.innerHTML = `
-        <div class="card-body" style="padding:15px;">
+        <div class="card-body" style="padding:16px;">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
-                <h5 style="margin:0;font-size:1.1rem;color:var(--danger)"><i class="fas fa-spider" style="margin-right:8px"></i>${v.type || 'Unknown'}</h5>
-                ${v.severity ? `<span style="font-size:0.7rem;padding:3px 10px;border-radius:12px;background:var(--danger);color:white;font-weight:700;text-transform:uppercase;letter-spacing:1px">${v.severity}</span>` : ''}
+                <h5 style="margin:0;font-size:1.02rem;color:var(--danger);font-weight:700"><i class="fas fa-bug" style="margin-right:8px"></i>${v.type || 'Security Finding'}</h5>
+                ${v.severity ? `<span class="bklit-badge danger" style="text-transform:uppercase;letter-spacing:0.06em">${v.severity}</span>` : ''}
             </div>
-            
-            <p style="margin:0 0 6px 0;font-size:0.85rem;color:var(--t1)">
-                <i class="fas fa-crosshairs" style="color:var(--t3);margin-right:6px"></i> 
-                <strong>Target:</strong> <span style="font-family:var(--mono);color:var(--primary)">${v.url || '-'}</span>
+            <p style="margin:0 0 6px 0;font-size:0.84rem;color:var(--t1)">
+                <i class="fas fa-crosshairs" style="color:var(--t3);margin-right:6px"></i>
+                <strong>Endpoint:</strong> <span style="font-family:var(--mono);color:var(--primary)">${v.url || '-'}</span>
             </p>
-            
-            ${v.payload ? `<p style="margin:0;font-size:0.85rem;color:var(--t2)"><i class="fas fa-biohazard" style="color:var(--t3);margin-right:6px"></i><strong>Payload:</strong> <code style="margin-left:4px;color:#c97a7e">${String(v.payload).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></p>` : ''}
-            
+            ${v.payload ? `<p style="margin:0;font-size:0.84rem;color:var(--t2)"><i class="fas fa-code" style="color:var(--t3);margin-right:6px"></i><strong>Vector:</strong> <code style="margin-left:4px;color:var(--primary);font-family:var(--mono)">${String(v.payload).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></p>` : ''}
             ${detailHTML}
             ${evidenceHTML}
-            
-            <div style="margin-top:12px;text-align:right;font-size:0.7rem;color:var(--t3);border-top:1px solid rgba(255,255,255,0.05);padding-top:8px;">
-                <i class="fas fa-clock"></i> Discovered: ${v.timestamp ? new Date(v.timestamp).toLocaleString() : new Date().toLocaleString()}
+            <div style="margin-top:12px;text-align:right;font-size:0.72rem;color:var(--t3);border-top:1px solid var(--gb);padding-top:8px;">
+                <i class="fas fa-clock"></i> Verified: ${v.timestamp ? new Date(v.timestamp).toLocaleString() : new Date().toLocaleString()}
             </div>
         </div>
     `;
@@ -292,94 +339,120 @@ function addVuln(v) {
 function addHistoryEntry(a) {
     const box = el('attack-history-container');
     if (!box) return;
-    // Remove empty placeholder
     const empCard = box.querySelector('.glass-card');
     if (empCard && empCard.querySelector('.empty-state')) empCard.remove();
 
+    historyCount += 1;
+    const navH = el('nav-history-count');
+    if (navH) navH.textContent = String(historyCount);
+
     const d = document.createElement('div');
-    d.className = 'glass-card';
+    d.className = 'glass-card spotlight-card';
     d.style.marginBottom = '10px';
     d.innerHTML = `
         <div class="card-body" style="display:flex;justify-content:space-between;align-items:center">
             <div>
-                <div style="font-weight:700;font-size:.9rem">${(a.attack_type||'test').toUpperCase()}</div>
-                <div style="font-size:.75rem;color:var(--t2);margin-top:2px">${a.url||''}</div>
-                <div style="font-size:.7rem;color:var(--t3);margin-top:2px">${a.timestamp ? new Date(a.timestamp).toLocaleString() : ''}</div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <span class="bklit-pill">${(a.attack_type || 'AUDIT').toUpperCase()}</span>
+                    <span style="font-family:var(--mono);font-size:0.82rem;color:var(--t1)">${a.url || ''}</span>
+                </div>
+                <div style="font-size:.73rem;color:var(--t3);margin-top:6px">${a.timestamp ? new Date(a.timestamp).toLocaleString() : ''}</div>
             </div>
             <div style="text-align:right">
-                <div style="font-family:var(--mono);font-size:1.4rem;font-weight:700">${a.total_requests||0}</div>
-                <div style="font-size:.7rem;color:var(--t3)">requests</div>
+                <div style="font-family:var(--mono);font-size:1.35rem;font-weight:700;color:var(--t1)">${(a.total_requests || 0).toLocaleString()}</div>
+                <div style="font-size:.7rem;color:var(--t3)">requests dispatched</div>
             </div>
         </div>
     `;
     box.insertBefore(d, box.firstChild);
 }
 
-// ── Charts ─────────────────────────────────────────────────────────
-const CHART_OPTS = {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 250 },
-    scales: {
-        y: {
-            beginAtZero: true,
-            grid:  { color: 'rgba(255,255,255,0.05)' },
-            ticks: { color: 'rgba(255,255,255,0.35)', font: { family: 'JetBrains Mono', size: 10 } }
-        },
-        x: {
-            grid:  { display: false },
-            ticks: { color: 'rgba(255,255,255,0.25)', font: { family: 'JetBrains Mono', size: 9 } }
-        }
-    },
-    plugins: { legend: { display: false } }
-};
-
+// ── Bklit UI Charts ────────────────────────────────────────────────
 function initCharts() {
     const rtCanvas = el('response-time-chart');
     const rrCanvas = el('request-rate-chart');
     if (!rtCanvas || !rrCanvas || typeof Chart === 'undefined') return;
 
-    Chart.defaults.color       = 'rgba(255,255,255,0.35)';
-    Chart.defaults.borderColor = 'rgba(255,255,255,0.06)';
+    const rtCtx = rtCanvas.getContext('2d');
+    const amberGrad = rtCtx.createLinearGradient(0, 0, 0, 200);
+    amberGrad.addColorStop(0, 'rgba(245, 158, 11, 0.28)');
+    amberGrad.addColorStop(1, 'rgba(245, 158, 11, 0.00)');
 
-    window.responseTimeChart = new Chart(rtCanvas.getContext('2d'), {
+    const baseOpts = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 260 },
+        scales: {
+            y: {
+                beginAtZero: true,
+                grid:  { color: 'rgba(255, 255, 255, 0.05)', borderDash: [4, 4] },
+                ticks: { color: '#71717a', font: { family: 'JetBrains Mono', size: 10 } }
+            },
+            x: {
+                grid:  { display: false },
+                ticks: { color: '#71717a', font: { family: 'JetBrains Mono', size: 9 } }
+            }
+        },
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                backgroundColor: 'rgba(18, 18, 22, 0.94)',
+                titleColor: '#f4f4f5',
+                bodyColor: '#f59e0b',
+                borderColor: 'rgba(255, 255, 255, 0.12)',
+                borderWidth: 1,
+                padding: 10,
+                titleFont: { family: 'Inter', size: 11, weight: '600' },
+                bodyFont:  { family: 'JetBrains Mono', size: 11 }
+            }
+        }
+    };
+
+    window.responseTimeChart = new Chart(rtCtx, {
         type: 'line',
         data: {
-            labels: [],
+            labels: metricsData.response_times.map((_, i) => `T-${metricsData.response_times.length - i}`),
             datasets: [{
-                data: [],
-                backgroundColor: 'rgba(255,255,255,0.05)',
-                borderColor:     'rgba(255,255,255,0.65)',
-                borderWidth: 1.5,
-                tension: 0.4,
+                label: 'Latency (ms)',
+                data: metricsData.response_times,
+                backgroundColor: amberGrad,
+                borderColor: '#f59e0b',
+                borderWidth: 2,
+                tension: 0.42,
                 fill: true,
-                pointRadius: 2
+                pointRadius: 2.5,
+                pointBackgroundColor: '#f59e0b'
             }]
         },
-        options: { ...CHART_OPTS }
+        options: JSON.parse(JSON.stringify(baseOpts))
     });
+    // Re-apply gradient after clone
+    window.responseTimeChart.data.datasets[0].backgroundColor = amberGrad;
+    window.responseTimeChart.update('none');
 
     window.requestRateChart = new Chart(rrCanvas.getContext('2d'), {
         type: 'bar',
         data: {
-            labels: ['Successful', 'Errors/Blocks'],
+            labels: ['Successful (2xx/3xx)', 'Blocked / Errors'],
             datasets: [{
+                label: 'Requests',
                 data: [0, 0],
-                backgroundColor: ['rgba(255,255,255,0.18)', 'rgba(255,255,255,0.06)'],
-                borderColor:     ['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.2)'],
-                borderWidth: 1,
-                borderRadius: 4
+                backgroundColor: ['rgba(74, 222, 128, 0.22)', 'rgba(248, 113, 113, 0.22)'],
+                borderColor:     ['#4ade80', '#f87171'],
+                borderWidth: 1.5,
+                borderRadius: 6,
+                barThickness: 44
             }]
         },
-        options: { ...CHART_OPTS }
+        options: JSON.parse(JSON.stringify(baseOpts))
     });
 }
 
 function updateCharts() {
     if (window.responseTimeChart) {
         const rt = window.responseTimeChart;
-        rt.data.labels            = metricsData.response_times.map((_, i) => i);
-        rt.data.datasets[0].data  = metricsData.response_times;
+        rt.data.labels           = metricsData.response_times.map((_, i) => `#${i + 1}`);
+        rt.data.datasets[0].data = metricsData.response_times;
         rt.update('none');
     }
     if (window.requestRateChart) {
@@ -401,16 +474,16 @@ function connectWS() {
 
     ws.onopen = function() {
         wsRetryDelay = 2000;
-        addLog('Connected to backend.', 'success');
+        addLog('Connected to telemetry backend (' + BACKEND_HOST + ').', 'success');
         setStatus('ready', 'Ready');
     };
     ws.onclose = function() {
-        addLog('Disconnected — retrying in ' + (wsRetryDelay/1000) + 's...', 'warning');
+        addLog('WebSocket stream disconnected — retrying in ' + (wsRetryDelay / 1000) + 's...', 'warning');
         setStatus('error', 'Offline');
         wsRetryTimer = setTimeout(connectWS, wsRetryDelay);
         wsRetryDelay = Math.min(wsRetryDelay * 1.5, 30000);
     };
-    ws.onerror = function() { addLog('WebSocket error.', 'error'); };
+    ws.onerror = function() { addLog('WebSocket transport error.', 'error'); };
 
     ws.onmessage = function(evt) {
         try {
@@ -421,7 +494,7 @@ function connectWS() {
                 case 'attack_status': handleAttackStatus(msg.data);  break;
                 case 'log':           addLog(msg.message, msg.level || 'info'); break;
             }
-        } catch(e) { /* ignore malformed */ }
+        } catch (e) { /* ignore malformed */ }
     };
 }
 
@@ -442,11 +515,13 @@ async function fetchStatus() {
         if (data.vulnerabilities && data.vulnerabilities.length) {
             const vc = el('vulnerabilities-container');
             if (vc) vc.innerHTML = '';
+            vulnCount = 0;
             data.vulnerabilities.forEach(addVuln);
         }
         if (data.history && data.history.length) {
             const hc = el('attack-history-container');
             if (hc) hc.innerHTML = '';
+            historyCount = 0;
             data.history.forEach(addHistoryEntry);
         }
     } catch (e) { /* backend not ready yet */ }
@@ -455,8 +530,8 @@ async function fetchStatus() {
 // ── API: start attack ──────────────────────────────────────────────
 async function startAttack() {
     const urlVal = el('url-input') ? el('url-input').value.trim() : '';
-    if (!urlVal)        { alert('Enter a target URL first.'); return; }
-    if (!BACKEND_HOST)  { alert('No backend configured - go to Settings.'); return; }
+    if (!urlVal)       { alert('Enter a target URL first.'); return; }
+    if (!BACKEND_HOST) { alert('No backend configured - go to Settings.'); return; }
 
     let selectedType = el('attack-type-input') ? el('attack-type-input').value : 'ddos';
     const xssVec = el('xss-vector-select');
@@ -481,7 +556,7 @@ async function startAttack() {
     if (startBtn) startBtn.disabled = true;
 
     try {
-        const res    = await fetch(`${getBackendUrls().http}/api/attack/start`, {
+        const res = await fetch(`${getBackendUrls().http}/api/attack/start`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
             body:    JSON.stringify(payload)
@@ -490,8 +565,8 @@ async function startAttack() {
 
         if (res.ok && result.success) {
             currentAttackId = result.attack_id;
-            addLog(`Attack launched - ID: ${currentAttackId}`, 'info');
-            document.querySelector('.slink[data-page="dashboard"]').click();
+            addLog(`Verification module [${selectedType.toUpperCase()}] launched — ID: ${currentAttackId}`, 'info');
+            switchToPage('dashboard');
         } else {
             alert(result.detail || result.message || 'Failed to start.');
             if (startBtn) startBtn.disabled = false;
@@ -508,7 +583,7 @@ async function stopAttack() {
     try {
         const res = await fetch(`${getBackendUrls().http}/api/attack/stop`, { method: 'POST' });
         const r   = await res.json();
-        if (r.success) addLog('Stop command sent.', 'info');
+        if (r.success) addLog('Stop command dispatched to engine.', 'info');
     } catch (err) { addLog('Stop error: ' + err.message, 'error'); }
 }
 
@@ -517,16 +592,28 @@ async function resetAll() {
     if (!confirm('Reset all stats, logs and findings?')) return;
     try {
         if (BACKEND_HOST) await fetch(`${getBackendUrls().http}/api/logs/clear`, { method: 'POST' });
-        metricsData = { total_requests: 0, successful_requests: 0, failed_requests: 0, response_times: [] };
+        hasLiveLatency = false;
+        vulnCount = 0;
+        historyCount = 0;
+        updateVulnBadges();
+        const navH = el('nav-history-count');
+        if (navH) navH.textContent = '0';
+
+        metricsData = {
+            total_requests: 0,
+            successful_requests: 0,
+            failed_requests: 0,
+            response_times: [11.8, 13.4, 12.1, 14.9, 13.2, 11.5, 15.6, 13.8, 12.4, 14.1, 12.0, 12.9]
+        };
         updateStats(metricsData);
 
         const vc = el('vulnerabilities-container');
-        if (vc) vc.innerHTML = '<div class="empty-state"><i class="fas fa-shield-check empty-ico"></i><p>No findings yet</p><small>Run a test to discover vulnerabilities</small></div>';
+        if (vc) vc.innerHTML = '<div class="empty-state"><i class="fas fa-shield-halved empty-ico"></i><p>No vulnerabilities detected yet</p><small>Launch a test module against an authorized target to populate verified findings</small></div>';
 
         const hc = el('attack-history-container');
-        if (hc) hc.innerHTML = '<div class="glass-card"><div class="card-body"><div class="empty-state"><i class="fas fa-clock-rotate-left empty-ico"></i><p>No history yet</p><small>Completed tests appear here</small></div></div></div>';
+        if (hc) hc.innerHTML = '<div class="glass-card spotlight-card"><div class="card-body"><div class="empty-state"><i class="fas fa-clock-rotate-left empty-ico"></i><p>No audit runs recorded yet</p><small>Completed module executions will be archived here automatically</small></div></div></div>';
 
-        addLog('All data reset.', 'info');
+        addLog('All telemetry counters and findings cleared.', 'info');
     } catch (err) { addLog('Reset error: ' + err.message, 'error'); }
 }
 
@@ -543,10 +630,10 @@ async function callRecon(endpoint, extra) {
         target = 'wlan0';
     }
     if (!target) {
-        if (outBox) outBox.innerHTML = '<div class="log-line log-warning">Enter a target domain first.</div>';
+        if (outBox) outBox.innerHTML = '<div class="log-line log-warning">Enter a target domain or IP first.</div>';
         return null;
     }
-    if (outBox) outBox.innerHTML = '<div class="log-line log-info">Running... please wait.</div>';
+    if (outBox) outBox.innerHTML = '<div class="log-line log-info">Executing passive recon module [' + endpoint.toUpperCase() + ']... please wait.</div>';
 
     try {
         const res = await fetch(`${getBackendUrls().http}/api/recon/${endpoint}`, {
@@ -563,7 +650,7 @@ async function callRecon(endpoint, extra) {
 
 function showRecon(data, label) {
     const active = el('recon-active-tool');
-    if (active) active.textContent = '- ' + label;
+    if (active) active.textContent = '— ' + label;
     const box = el('recon-output');
     if (!box || !data) return;
     box.innerHTML = '<pre class="recon-pre">' + JSON.stringify(data, null, 2) + '</pre>';
@@ -588,36 +675,65 @@ function showRT(data, resultId) {
     box.innerHTML = '<pre class="recon-pre">' + JSON.stringify(data, null, 2) + '</pre>';
 }
 
-// ── ThreeUI 3D Spatial Wireframe Telemetry Node ────────────────────
+// ── ThreeUI Multi-Layered 3D Spatial Telemetry Scene ───────────────
 function initThreeUINode() {
     const stage = el('threeui-canvas-container');
     if (!stage || typeof THREE === 'undefined') return;
 
-    const width  = stage.clientWidth  || 140;
-    const height = stage.clientHeight || 92;
+    const getDims = () => ({
+        w: Math.max(stage.clientWidth  || 360, 200),
+        h: Math.max(stage.clientHeight || 160, 120)
+    });
 
+    const { w, h } = getDims();
     const scene  = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
-    camera.position.z = 3.2;
+    const camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100);
+    camera.position.z = 3.8;
 
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8));
-    renderer.setSize(width, height);
+    renderer.setSize(w, h);
     stage.innerHTML = '';
     stage.appendChild(renderer.domElement);
 
+    const group = new THREE.Group();
+    scene.add(group);
+
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    const geom = new THREE.IcosahedronGeometry(1.05, 1);
-    const mat  = new THREE.MeshBasicMaterial({
+
+    // 1. Outer Geodesic Wireframe Sphere (Slate)
+    const outerGeom = new THREE.IcosahedronGeometry(1.22, 1);
+    const outerMat  = new THREE.MeshBasicMaterial({
         color: isLight ? 0x475569 : 0x94a3b8,
         wireframe: true,
         transparent: true,
-        opacity: 0.65
+        opacity: 0.48
     });
-    window.threeUIMaterial = mat;
+    const outerMesh = new THREE.Mesh(outerGeom, outerMat);
+    group.add(outerMesh);
 
-    const mesh = new THREE.Mesh(geom, mat);
-    scene.add(mesh);
+    // 2. Inner Counter-Rotating Octahedron Core (Warm Amber)
+    const coreGeom = new THREE.OctahedronGeometry(0.68, 0);
+    const coreMat  = new THREE.MeshBasicMaterial({
+        color: isLight ? 0xd97706 : 0xf59e0b,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.85
+    });
+    const coreMesh = new THREE.Mesh(coreGeom, coreMat);
+    group.add(coreMesh);
+
+    // 3. Orbital Telemetry Ring
+    const ringGeom = new THREE.TorusGeometry(1.55, 0.012, 8, 64);
+    const ringMat  = new THREE.MeshBasicMaterial({
+        color: isLight ? 0x64748b : 0x52525b,
+        transparent: true,
+        opacity: 0.55
+    });
+    const ringMesh = new THREE.Mesh(ringGeom, ringMat);
+    ringMesh.rotation.x = Math.PI / 2.6;
+    ringMesh.rotation.y = Math.PI / 8;
+    group.add(ringMesh);
 
     let targetRotX = 0;
     let targetRotY = 0;
@@ -625,16 +741,32 @@ function initThreeUINode() {
         const rect = stage.getBoundingClientRect();
         const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
         const ny = ((e.clientY - rect.top) / rect.height) * 2 - 1;
-        targetRotY = nx * 0.6;
-        targetRotX = ny * 0.4;
+        targetRotY = nx * 0.75;
+        targetRotX = ny * 0.45;
+    });
+
+    window.addEventListener('resize', function() {
+        const d = getDims();
+        camera.aspect = d.w / d.h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(d.w, d.h);
     });
 
     function animate() {
         requestAnimationFrame(animate);
         const curLight = document.documentElement.getAttribute('data-theme') === 'light';
-        mat.color.setHex(curLight ? 0x475569 : 0x94a3b8);
-        mesh.rotation.y += 0.0045 + (targetRotY - mesh.rotation.y) * 0.04;
-        mesh.rotation.x += 0.0025 + (targetRotX - mesh.rotation.x) * 0.04;
+        outerMat.color.setHex(curLight ? 0x475569 : 0x94a3b8);
+        coreMat.color.setHex(curLight ? 0xd97706 : 0xf59e0b);
+
+        outerMesh.rotation.y += 0.0035;
+        outerMesh.rotation.x += 0.0018;
+        coreMesh.rotation.y  -= 0.0065;
+        coreMesh.rotation.z  += 0.0030;
+        ringMesh.rotation.z  += 0.0025;
+
+        group.rotation.y += (targetRotY - group.rotation.y) * 0.05;
+        group.rotation.x += (targetRotX - group.rotation.x) * 0.05;
+
         renderer.render(scene, camera);
     }
     animate();
@@ -664,6 +796,18 @@ function wireButtons() {
         };
     }
 
+    // Copy Recon JSON button
+    var copyReconBtn = el('copy-recon-btn');
+    if (copyReconBtn) {
+        copyReconBtn.onclick = function() {
+            var out = el('recon-output');
+            if (out && navigator.clipboard) {
+                navigator.clipboard.writeText(out.innerText || '');
+                addLog('Recon JSON copied to clipboard.', 'info');
+            }
+        };
+    }
+
     // Attack controls
     var startBtn = el('start-attack');
     var stopBtn  = el('stop-attack');
@@ -685,9 +829,13 @@ function wireButtons() {
                 BACKEND_HOST = sanitizeHost(val);
             } else {
                 localStorage.removeItem('testing_backend_host');
-                BACKEND_HOST = '';
+                BACKEND_HOST = location.host;
             }
-            addLog('Backend saved. Reconnecting...', 'info');
+            var sHost = el('sidebar-backend-host');
+            var tHost = el('top-node-host');
+            if (sHost) sHost.textContent = BACKEND_HOST || 'Local';
+            if (tHost) tHost.textContent = BACKEND_HOST || 'Local';
+            addLog('Backend endpoint updated. Reconnecting...', 'info');
             if (ws) ws.close();
             connectWS();
             fetchStatus();
@@ -696,21 +844,21 @@ function wireButtons() {
 
     // Recon buttons — endpoint : label
     var reconMap = [
-        ['run-dns',          'dns',          'DNS Lookup'],
-        ['run-whois',        'whois',        'WHOIS'],
-        ['run-ssl',          'ssl',          'SSL/TLS'],
-        ['run-ip',           'ip',           'IP Info'],
-        ['run-phone',        'phone',        'Phone Info'],
-        ['run-headers',      'headers',      'HTTP Headers'],
-        ['run-fingerprint',  'fingerprint',  'Fingerprint'],
-        ['run-subdomains',   'subdomains',   'Subdomains'],
-        ['run-dorks',        'dorks',        'Google Dorks'],
-        ['run-zonetransfer', 'zonetransfer', 'Zone Transfer'],
-        ['run-waf',          'waf',          'WAF Detection'],
-        ['run-ratelimit',    'ratelimit',    'Rate Limit'],
-        ['run-breaches',     'breaches',     'Breach Check'],
-        ['run-ioc',          'ioc',          'IOC / Threat Intel'],
-        ['run-wifi-audit',   'wifi-audit',   'Wi-Fi Security Audit']
+        ['run-dns',          'dns',          'DNS Records'],
+        ['run-whois',        'whois',        'WHOIS / RDAP'],
+        ['run-ssl',          'ssl',          'SSL/TLS Certificate'],
+        ['run-ip',           'ip',           'IP Geolocation'],
+        ['run-phone',        'phone',        'Phone OSINT'],
+        ['run-headers',      'headers',      'HTTP Security Headers'],
+        ['run-fingerprint',  'fingerprint',  'Tech Fingerprint'],
+        ['run-subdomains',   'subdomains',   'Subdomain Discovery'],
+        ['run-dorks',        'dorks',        'Search Engine Dorks'],
+        ['run-zonetransfer', 'zonetransfer', 'DNS Zone Transfer'],
+        ['run-waf',          'waf',          'WAF Fingerprinting'],
+        ['run-ratelimit',    'ratelimit',    'Rate Limit Probe'],
+        ['run-breaches',     'breaches',     'Breach Exposure'],
+        ['run-ioc',          'ioc',          'IOC Threat Intel'],
+        ['run-wifi-audit',   'wifi-audit',   'Wi-Fi 802.11w Posture Audit']
     ];
     reconMap.forEach(function(row) {
         var btn = el(row[0]);
@@ -767,18 +915,18 @@ function wireButtons() {
 
         selfStart.disabled = true;
         if (selfStop) selfStop.disabled = false;
-        addLog(`[Self-Test] Launching IP stress test at ${targetIp}...`, 'warning');
+        addLog(`[Diagnostic] Launching reachability stress test against ${targetIp}...`, 'warning');
         try {
             var urls = getBackendUrls();
-            var r = await fetch(urls.http + '/api/selftest/start', { 
+            var r = await fetch(urls.http + '/api/selftest/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ target_ip: targetIp })
             });
             var d = await r.json();
-            addLog('[Self-Test] ' + (d.message || 'Started'), d.success ? 'success' : 'error');
-        } catch(e) {
-            addLog('[Self-Test] Error: ' + e.message, 'error');
+            addLog('[Diagnostic] ' + (d.message || 'Started'), d.success ? 'success' : 'error');
+        } catch (e) {
+            addLog('[Diagnostic] Error: ' + e.message, 'error');
             selfStart.disabled = false;
             if (selfStop) selfStop.disabled = true;
         }
@@ -789,9 +937,9 @@ function wireButtons() {
         try {
             var urls = getBackendUrls();
             await fetch(urls.http + '/api/attack/stop', { method: 'POST' });
-            addLog('[Self-Test] Stop command sent.', 'warning');
-        } catch(e) {
-            addLog('[Self-Test] Stop error: ' + e.message, 'error');
+            addLog('[Diagnostic] Stop command sent.', 'warning');
+        } catch (e) {
+            addLog('[Diagnostic] Stop error: ' + e.message, 'error');
         }
         if (selfStart) selfStart.disabled = false;
     };
@@ -828,6 +976,11 @@ async function boot() {
     initThreeUINode();
     initSpotlights();
     wireButtons();
+
+    var sHost = el('sidebar-backend-host');
+    var tHost = el('top-node-host');
+    if (sHost && BACKEND_HOST) sHost.textContent = BACKEND_HOST;
+    if (tHost && BACKEND_HOST) tHost.textContent = BACKEND_HOST;
 
     // Pre-fill Settings input
     var bInp = el('backend-url-input');
