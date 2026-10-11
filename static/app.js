@@ -63,11 +63,6 @@ function initNav() {
             switchToPage(link.dataset.page);
         });
     });
-
-    const heroMod = el('hero-btn-modules');
-    const heroRec = el('hero-btn-recon');
-    if (heroMod) heroMod.onclick = () => switchToPage('attacks');
-    if (heroRec) heroRec.onclick = () => switchToPage('recon');
 }
 
 // ── Attack type selector ───────────────────────────────────────────
@@ -138,15 +133,6 @@ function initAttackSelector() {
             }
         });
     });
-
-    const presetBtn = el('preset-local-target');
-    if (presetBtn) {
-        presetBtn.onclick = () => {
-            const urlInp = el('url-input');
-            if (urlInp) urlInp.value = 'http://127.0.0.1:8083';
-            addLog('Preset target set to http://127.0.0.1:8083', 'info');
-        };
-    }
 }
 
 // ── Log helpers ────────────────────────────────────────────────────
@@ -476,7 +462,7 @@ function connectWS() {
 
     ws.onopen = function() {
         wsRetryDelay = 2000;
-        addLog('Connected to telemetry backend (' + BACKEND_HOST + ').', 'success');
+        addLog('Connected to telemetry stream.', 'success');
         setStatus('ready', 'Ready');
     };
     ws.onclose = function() {
@@ -677,406 +663,6 @@ function showRT(data, resultId) {
     box.innerHTML = '<pre class="recon-pre">' + JSON.stringify(data, null, 2) + '</pre>';
 }
 
-// ── ThreeUI Multi-Mode Interactive Cyber Graphics Stage ────────────
-function initHeroGraphicsStage() {
-    const container = el('hero-gfx-container');
-    const canvas    = el('hero-gfx-canvas');
-    if (!container || !canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let mode = 'core'; // 'core' | 'globe' | 'wave'
-    let width = 360;
-    let height = 158;
-    let dpr = Math.min(window.devicePixelRatio || 1, 1.8);
-    let mouseX = 0;
-    let mouseY = 0;
-    let targetMX = 0;
-    let targetMY = 0;
-    let t = 0;
-
-    function resize() {
-        width  = Math.max(container.clientWidth  || 360, 220);
-        height = Math.max(container.clientHeight || 158, 130);
-        dpr    = Math.min(window.devicePixelRatio || 1, 1.8);
-        canvas.width  = Math.floor(width * dpr);
-        canvas.height = Math.floor(height * dpr);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-    resize();
-    window.addEventListener('resize', resize);
-
-    container.addEventListener('mousemove', function(e) {
-        const rect = container.getBoundingClientRect();
-        targetMX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-        targetMY = ((e.clientY - rect.top) / rect.height) * 2 - 1;
-        const coordEl = el('gfx-live-coord');
-        if (coordEl) {
-            coordEl.textContent = `X: ${targetMX.toFixed(2)}  Y: ${targetMY.toFixed(2)}`;
-        }
-    });
-    container.addEventListener('mouseleave', function() {
-        targetMX = 0;
-        targetMY = 0;
-    });
-
-    // Mode tabs
-    const tabs = document.querySelectorAll('.gfx-tab[data-gfx-mode]');
-    const titleEl = el('gfx-mode-label');
-    const modeTitles = {
-        core:  'ISOMETRIC LOGIC CORE',
-        globe: 'GLOBAL THREAT TOPOLOGY',
-        wave:  'HARMONIC PHASE SPECTRUM'
-    };
-    tabs.forEach(function(tab) {
-        tab.addEventListener('click', function() {
-            tabs.forEach(b => b.classList.remove('active'));
-            tab.classList.add('active');
-            mode = tab.dataset.gfxMode || 'core';
-            if (titleEl) titleEl.textContent = modeTitles[mode] || 'ISOMETRIC LOGIC CORE';
-        });
-    });
-
-    // Pre-seed isometric packets for 'core' mode
-    const isoPackets = Array.from({ length: 14 }, (_, i) => ({
-        layer: i % 3,
-        axis:  i % 2 === 0 ? 'x' : 'y',
-        line:  (i * 7) % 4,
-        prog:  (i * 0.17) % 1,
-        speed: 0.006 + (i % 4) * 0.0025
-    }));
-
-    // Pre-seed globe points & flight arcs for 'globe' mode
-    const globeDots = [];
-    for (let lat = -60; lat <= 60; lat += 15) {
-        const rLat = (lat * Math.PI) / 180;
-        const count = Math.max(6, Math.floor(Math.cos(rLat) * 24));
-        for (let j = 0; j < count; j++) {
-            const lon = (j / count) * Math.PI * 2;
-            globeDots.push({ lat: rLat, lon });
-        }
-    }
-    const flightArcs = [
-        { lat1: 0.5, lon1: 0.2,  lat2: -0.3, lon2: 1.8,  prog: 0.1 },
-        { lat1: -0.4, lon1: 2.1, lat2: 0.6,  lon2: 3.9,  prog: 0.45 },
-        { lat1: 0.2, lon1: 4.2,  lat2: 0.7,  lon2: 5.8,  prog: 0.75 },
-        { lat1: -0.2, lon1: 1.0, lat2: 0.4,  lon2: 2.9,  prog: 0.3 }
-    ];
-
-    function projectIso(gx, gy, gz, cx, cy, scale) {
-        const tiltX = mouseX * 0.22;
-        const tiltY = mouseY * 0.16;
-        const rx = gx * Math.cos(tiltX) - gy * Math.sin(tiltX);
-        const ry = gx * Math.sin(tiltX) + gy * Math.cos(tiltX);
-        const sx = cx + (rx - ry) * Math.cos(0.48 + tiltY * 0.15) * scale;
-        const sy = cy + (rx + ry) * Math.sin(0.48 + tiltY * 0.15) * scale - gz * scale * 0.85;
-        return { x: sx, y: sy };
-    }
-
-    function drawCoreMode(isLight, amber, slate, gridAlpha) {
-        const cx = width * 0.5;
-        const cy = height * 0.56;
-        const scale = Math.min(width, height) * 0.17;
-        const layers = [-1.05, 0, 1.05];
-        const labels = ['CORE ENGINE', 'INSPECTION MESH', 'EDGE WAF // 802.11w'];
-
-        // Vertical bus pillars connecting layers at corners
-        const corners = [[-1.5, -1.5], [1.5, -1.5], [1.5, 1.5], [-1.5, 1.5], [0, 0]];
-        ctx.strokeStyle = isLight ? 'rgba(100,116,139,0.25)' : 'rgba(161,161,170,0.22)';
-        ctx.lineWidth = 1;
-        corners.forEach(([gx, gy], idx) => {
-            const pBot = projectIso(gx, gy, layers[0], cx, cy, scale);
-            const pTop = projectIso(gx, gy, layers[2], cx, cy, scale);
-            ctx.beginPath();
-            ctx.moveTo(pBot.x, pBot.y);
-            ctx.lineTo(pTop.x, pTop.y);
-            ctx.stroke();
-
-            // Rising pulse packet on center pillar
-            if (idx === 4) {
-                const pz = layers[0] + ((t * 1.4) % 2.1);
-                const pp = projectIso(0, 0, pz, cx, cy, scale);
-                ctx.fillStyle = amber;
-                ctx.beginPath();
-                ctx.arc(pp.x, pp.y, 3.2, 0, Math.PI * 2);
-                ctx.fill();
-            }
-        });
-
-        // Draw 3 Isometric Planes (bottom to top)
-        layers.forEach((gz, lIdx) => {
-            const floatZ = gz + Math.sin(t * 1.6 + lIdx * 1.1) * 0.06;
-
-            // Plane fill
-            const c0 = projectIso(-1.5, -1.5, floatZ, cx, cy, scale);
-            const c1 = projectIso(1.5,  -1.5, floatZ, cx, cy, scale);
-            const c2 = projectIso(1.5,   1.5, floatZ, cx, cy, scale);
-            const c3 = projectIso(-1.5,  1.5, floatZ, cx, cy, scale);
-
-            ctx.fillStyle = lIdx === 1
-                ? (isLight ? 'rgba(217,119,6,0.06)' : 'rgba(245,158,11,0.06)')
-                : (isLight ? 'rgba(15,23,42,0.03)' : 'rgba(255,255,255,0.025)');
-            ctx.beginPath();
-            ctx.moveTo(c0.x, c0.y);
-            ctx.lineTo(c1.x, c1.y);
-            ctx.lineTo(c2.x, c2.y);
-            ctx.lineTo(c3.x, c3.y);
-            ctx.closePath();
-            ctx.fill();
-
-            // Grid lines on plane (-1.5 to 1.5 in 3 steps)
-            ctx.strokeStyle = lIdx === 1
-                ? (isLight ? 'rgba(217,119,6,0.35)' : 'rgba(245,158,11,0.35)')
-                : gridAlpha;
-            ctx.lineWidth = lIdx === 1 ? 1.1 : 0.85;
-
-            for (let i = 0; i <= 3; i++) {
-                const v = -1.5 + i;
-                const a1 = projectIso(v, -1.5, floatZ, cx, cy, scale);
-                const a2 = projectIso(v,  1.5, floatZ, cx, cy, scale);
-                ctx.beginPath();
-                ctx.moveTo(a1.x, a1.y);
-                ctx.lineTo(a2.x, a2.y);
-                ctx.stroke();
-
-                const b1 = projectIso(-1.5, v, floatZ, cx, cy, scale);
-                const b2 = projectIso( 1.5, v, floatZ, cx, cy, scale);
-                ctx.beginPath();
-                ctx.moveTo(b1.x, b1.y);
-                ctx.lineTo(b2.x, b2.y);
-                ctx.stroke();
-            }
-
-            // Layer callout tag on right vertex
-            ctx.fillStyle = lIdx === 1 ? amber : slate;
-            ctx.font = '600 8.5px "JetBrains Mono", monospace';
-            ctx.fillText(labels[lIdx], c1.x + 8, c1.y + 3);
-        });
-
-        // Animated data packets streaming across isometric grid rails
-        isoPackets.forEach(pkt => {
-            pkt.prog = (pkt.prog + pkt.speed) % 1;
-            const gz = layers[pkt.layer] + Math.sin(t * 1.6 + pkt.layer * 1.1) * 0.06;
-            const lane = -1.5 + pkt.line;
-            const pos  = -1.5 + pkt.prog * 3.0;
-            const gx   = pkt.axis === 'x' ? pos : lane;
-            const gy   = pkt.axis === 'x' ? lane : pos;
-            const pt   = projectIso(gx, gy, gz, cx, cy, scale);
-
-            ctx.fillStyle = pkt.layer === 1 ? amber : slate;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, pkt.layer === 1 ? 2.4 : 1.8, 0, Math.PI * 2);
-            ctx.fill();
-        });
-    }
-
-    function drawGlobeMode(isLight, amber, slate, gridAlpha) {
-        const cx = width * 0.5;
-        const cy = height * 0.52;
-        const R  = Math.min(width, height) * 0.39;
-        const rotY = t * 0.45 + mouseX * 0.9;
-        const rotX = 0.25 + mouseY * 0.4;
-
-        // Outer orbital ring
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(-0.28 + mouseX * 0.12);
-        ctx.strokeStyle = isLight ? 'rgba(217,119,6,0.32)' : 'rgba(245,158,11,0.32)';
-        ctx.lineWidth = 1.1;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, R * 1.28, R * 0.38, 0, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-
-        // Globe outline
-        ctx.strokeStyle = gridAlpha;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // Project 3D sphere point
-        function projSphere(lat, lon, rad) {
-            const phi = lon + rotY;
-            const x0 = Math.cos(lat) * Math.sin(phi);
-            const y0 = Math.sin(lat);
-            const z0 = Math.cos(lat) * Math.cos(phi);
-            const y1 = y0 * Math.cos(rotX) - z0 * Math.sin(rotX);
-            const z1 = y0 * Math.sin(rotX) + z0 * Math.cos(rotX);
-            return { x: cx + x0 * rad, y: cy - y1 * rad, z: z1 };
-        }
-
-        // Draw globe surface dots
-        globeDots.forEach(d => {
-            const p = projSphere(d.lat, d.lon, R);
-            if (p.z < -0.15) return;
-            const alpha = p.z > 0 ? 0.75 : 0.22;
-            ctx.fillStyle = p.z > 0.55 ? amber : slate;
-            ctx.globalAlpha = alpha;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, p.z > 0.4 ? 1.7 : 1.2, 0, Math.PI * 2);
-            ctx.fill();
-        });
-        ctx.globalAlpha = 1;
-
-        // Draw parabolic flight arcs between nodes
-        flightArcs.forEach(arc => {
-            arc.prog = (arc.prog + 0.008) % 1;
-            const p1 = projSphere(arc.lat1, arc.lon1, R);
-            const p2 = projSphere(arc.lat2, arc.lon2, R);
-            if (p1.z < 0 && p2.z < 0) return;
-
-            const midLat = (arc.lat1 + arc.lat2) * 0.5;
-            const midLon = (arc.lon1 + arc.lon2) * 0.5;
-            const pMid   = projSphere(midLat, midLon, R * 1.26);
-
-            ctx.strokeStyle = isLight ? 'rgba(217,119,6,0.45)' : 'rgba(245,158,11,0.48)';
-            ctx.lineWidth = 1.2;
-            ctx.beginPath();
-            ctx.moveTo(p1.x, p1.y);
-            ctx.quadraticCurveTo(pMid.x, pMid.y, p2.x, p2.y);
-            ctx.stroke();
-
-            // Traveling packet on quadratic curve
-            const u = arc.prog;
-            const px = (1 - u) * (1 - u) * p1.x + 2 * (1 - u) * u * pMid.x + u * u * p2.x;
-            const py = (1 - u) * (1 - u) * p1.y + 2 * (1 - u) * u * pMid.y + u * u * p2.y;
-            ctx.fillStyle = amber;
-            ctx.beginPath();
-            ctx.arc(px, py, 2.6, 0, Math.PI * 2);
-            ctx.fill();
-        });
-    }
-
-    function drawWaveMode(isLight, amber, slate) {
-        const rows = 11;
-        const cols = 38;
-        const padX = 24;
-        const usableW = width - padX * 2;
-
-        for (let r = 0; r < rows; r++) {
-            const normR = r / (rows - 1);
-            const baseY = 34 + normR * (height - 54);
-            const isFront = r >= rows - 3;
-
-            ctx.beginPath();
-            for (let c = 0; c <= cols; c++) {
-                const normC = c / cols;
-                const x = padX + normC * usableW;
-                const dx = normC * 2 - 1 - mouseX * 0.6;
-                const dy = normR * 2 - 1 - mouseY * 0.6;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-
-                const wave =
-                    Math.sin(normC * 7.5 + t * 2.2 + r * 0.55) * 8.5 +
-                    Math.cos(normC * 4.2 - t * 1.6 + r * 0.35) * 5.0 +
-                    Math.cos(dist * 5.0 - t * 3.0) * 6.5 * Math.max(0, 1 - dist * 0.65);
-
-                const y = baseY - wave;
-                if (c === 0) ctx.moveTo(x, y);
-                else ctx.lineTo(x, y);
-            }
-            ctx.strokeStyle = isFront ? amber : slate;
-            ctx.globalAlpha = isFront ? 0.88 : (0.22 + normR * 0.45);
-            ctx.lineWidth   = isFront ? 1.5 : 1.0;
-            ctx.stroke();
-        }
-        ctx.globalAlpha = 1;
-    }
-
-    function renderFrame() {
-        requestAnimationFrame(renderFrame);
-        t += 0.016;
-        mouseX += (targetMX - mouseX) * 0.08;
-        mouseY += (targetMY - mouseY) * 0.08;
-
-        ctx.clearRect(0, 0, width, height);
-
-        const isLight   = document.documentElement.getAttribute('data-theme') === 'light';
-        const amber     = isLight ? '#d97706' : '#f59e0b';
-        const slate     = isLight ? '#475569' : '#94a3b8';
-        const gridAlpha = isLight ? 'rgba(15,23,42,0.14)' : 'rgba(255,255,255,0.13)';
-
-        if (mode === 'core') {
-            drawCoreMode(isLight, amber, slate, gridAlpha);
-        } else if (mode === 'globe') {
-            drawGlobeMode(isLight, amber, slate, gridAlpha);
-        } else {
-            drawWaveMode(isLight, amber, slate);
-        }
-    }
-    renderFrame();
-}
-
-// ── Live Target Posture & Quick-Audit HUD ──────────────────────────
-async function runQuickPostureAudit(silent) {
-    const inp = el('hero-quick-target');
-    const btn = el('hero-btn-quick-audit');
-    const target = inp ? inp.value.trim() : 'http://127.0.0.1:8083';
-    if (!target || !BACKEND_HOST) return;
-
-    const scoreEl = el('hud-sec-score');
-    const wafEl   = el('hud-waf-status');
-    const connEl  = el('hud-conn-posture');
-
-    if (btn) btn.disabled = true;
-    if (scoreEl) scoreEl.textContent = '...';
-    if (wafEl)   wafEl.textContent   = '...';
-    if (connEl)  connEl.textContent  = '...';
-
-    try {
-        const base = getBackendUrls().http;
-        const [hdrRes, wafRes] = await Promise.all([
-            fetch(`${base}/api/recon/headers`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target })
-            }).then(r => r.json()).catch(() => null),
-            fetch(`${base}/api/recon/waf`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ target })
-            }).then(r => r.json()).catch(() => null)
-        ]);
-
-        if (hdrRes && !hdrRes.error && hdrRes.security_score != null) {
-            if (scoreEl) {
-                scoreEl.textContent = `${hdrRes.security_score}/100`;
-                scoreEl.style.color = hdrRes.security_score >= 70 ? 'var(--success)' : (hdrRes.security_score >= 40 ? 'var(--primary)' : 'var(--danger)');
-            }
-            const cp = hdrRes.connection_posture || {};
-            if (connEl) {
-                connEl.textContent = cp.timeout_configured ? 'Bounded' : 'Unbounded';
-                connEl.style.color = cp.timeout_configured ? 'var(--success)' : 'var(--warning)';
-            }
-        } else {
-            if (scoreEl) { scoreEl.textContent = 'Offline'; scoreEl.style.color = 'var(--t2)'; }
-            if (connEl)  { connEl.textContent  = 'N/A'; connEl.style.color = 'var(--t2)'; }
-        }
-
-        if (wafRes && !wafRes.error) {
-            const hasWaf = Boolean(wafRes.waf_detected);
-            const wafName = (wafRes.detected_wafs && wafRes.detected_wafs.length)
-                ? wafRes.detected_wafs.join(', ')
-                : (hasWaf ? 'Protected' : 'Direct');
-            if (wafEl) {
-                wafEl.textContent = wafName;
-                wafEl.style.color = hasWaf ? 'var(--success)' : 'var(--warning)';
-            }
-        } else {
-            if (wafEl) { wafEl.textContent = 'Unknown'; wafEl.style.color = 'var(--t2)'; }
-        }
-
-        if (!silent) {
-            addLog(`[Quick Audit] Posture inspected for ${target} — Score: ${hdrRes?.security_score ?? 'N/A'}/100`, 'info');
-        }
-    } catch (e) {
-        if (!silent) addLog(`[Quick Audit] Failed: ${e.message}`, 'error');
-    } finally {
-        if (btn) btn.disabled = false;
-    }
-}
-
 // ── Aceternity UI Cursor-Tracking Spotlights ───────────────────────
 function initSpotlights() {
     const cards = document.querySelectorAll('.glass-card, .stat-card, .spotlight-card');
@@ -1099,21 +685,6 @@ function wireButtons() {
             var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
             applyTheme(cur === 'light' ? 'dark' : 'light');
         };
-    }
-
-    // Quick Posture Audit HUD button & Enter key
-    var quickBtn = el('hero-btn-quick-audit');
-    var quickInp = el('hero-quick-target');
-    if (quickBtn) {
-        quickBtn.onclick = function() { runQuickPostureAudit(false); };
-    }
-    if (quickInp) {
-        quickInp.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                runQuickPostureAudit(false);
-            }
-        });
     }
 
     // Copy Recon JSON button
@@ -1145,21 +716,16 @@ function wireButtons() {
             var inp = el('backend-url-input');
             var val = inp ? inp.value.trim() : '';
             if (val) {
-                localStorage.setItem('testing_backend_host', val);
+                localStorage.setItem('cyberstrike_custom_backend', val);
                 BACKEND_HOST = sanitizeHost(val);
             } else {
-                localStorage.removeItem('testing_backend_host');
+                localStorage.removeItem('cyberstrike_custom_backend');
                 BACKEND_HOST = location.host;
             }
-            var sHost = el('sidebar-backend-host');
-            var tHost = el('top-node-host');
-            if (sHost) sHost.textContent = BACKEND_HOST || 'Local';
-            if (tHost) tHost.textContent = BACKEND_HOST || 'Local';
             addLog('Backend endpoint updated. Reconnecting...', 'info');
             if (ws) ws.close();
             connectWS();
             fetchStatus();
-            runQuickPostureAudit(true);
         };
     }
 
@@ -1268,6 +834,9 @@ function wireButtons() {
 
 // ── Boot ───────────────────────────────────────────────────────────
 async function boot() {
+    // Clear legacy cached backend host so no stale link is pre-filled
+    localStorage.removeItem('testing_backend_host');
+
     // 1. Try Vercel /api/config
     try {
         var res = await fetch('/api/config');
@@ -1275,8 +844,8 @@ async function boot() {
         if (cfg.backendHost) BACKEND_HOST = sanitizeHost(cfg.backendHost);
     } catch (e) { /* no config endpoint */ }
 
-    // 2. localStorage override
-    var saved = localStorage.getItem('testing_backend_host');
+    // 2. Custom user-saved override
+    var saved = localStorage.getItem('cyberstrike_custom_backend');
     if (saved) BACKEND_HOST = sanitizeHost(saved);
 
     // 3. Local dev fallback
@@ -1294,24 +863,15 @@ async function boot() {
     initCharts();
     var savedTheme = localStorage.getItem('cyberstrike_theme') || 'dark';
     applyTheme(savedTheme);
-    initHeroGraphicsStage();
     initSpotlights();
     wireButtons();
 
-    var sHost = el('sidebar-backend-host');
-    var tHost = el('top-node-host');
-    if (sHost && BACKEND_HOST) sHost.textContent = BACKEND_HOST;
-    if (tHost && BACKEND_HOST) tHost.textContent = BACKEND_HOST;
-
-    // Pre-fill Settings input
     var bInp = el('backend-url-input');
     if (bInp && saved) bInp.value = saved;
 
     if (BACKEND_HOST) {
-        addLog('Backend: ' + BACKEND_HOST, 'info');
         connectWS();
         fetchStatus();
-        runQuickPostureAudit(true);
     } else {
         addLog('No backend configured - go to Settings to set one.', 'warning');
     }

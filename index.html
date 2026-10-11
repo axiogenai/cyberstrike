@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link rel="stylesheet" href="/static/style.css?v=22">
+    <link rel="stylesheet" href="/static/style.css?v=23">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -46,12 +46,6 @@
                     <i data-lucide="shield-alert" class="lucide-xs"></i>
                     <span class="tstrip-label">Findings</span>
                     <strong class="tstrip-val" id="top-findings-count">0</strong>
-                </div>
-                <div class="tstrip-divider"></div>
-                <div class="tstrip-item">
-                    <i data-lucide="server" class="lucide-xs"></i>
-                    <span class="tstrip-label">Node</span>
-                    <strong class="tstrip-val" id="top-node-host">Local</strong>
                 </div>
             </div>
         </div>
@@ -118,13 +112,6 @@
                     <i data-lucide="sliders-horizontal" class="lucide-nav"></i>
                     <span>System Settings</span>
                 </a>
-                <div class="sidebar-foot-card">
-                    <div class="sfc-row">
-                        <span class="sfc-label">Engine Protocol</span>
-                        <span class="sfc-badge">WS / REST</span>
-                    </div>
-                    <div class="sfc-host" id="sidebar-backend-host">127.0.0.1:8081</div>
-                </div>
             </div>
         </aside>
 
@@ -135,84 +122,6 @@
                  1. COMMAND CENTER DASHBOARD
                  ================================================================ -->
             <section id="dashboard-page" class="page active">
-
-                <!-- Hero Banner + Live Target Posture Matrix -->
-                <div class="glass-card spotlight-card threeui-hero">
-                    <div class="threeui-hero-left">
-                        <div class="bklit-eyebrow">
-                            <i data-lucide="shield-check" class="lucide-xs"></i>
-                            <span>ENTERPRISE SECURITY COMMAND CENTER</span>
-                        </div>
-                        <h1 class="hero-title">Security Posture &amp; Live Verification</h1>
-                        <p class="hero-desc">
-                            High-precision application security verification, passive 802.11w &amp; HTTP header auditing, and real-time response latency analytics.
-                        </p>
-                        <div class="hero-actions">
-                            <button class="btn-primary" type="button" id="hero-btn-modules">
-                                <i data-lucide="crosshair" class="lucide-xs"></i>
-                                <span>Configure Test Module</span>
-                            </button>
-                            <button class="btn-secondary" type="button" id="hero-btn-recon">
-                                <i data-lucide="radar" class="lucide-xs"></i>
-                                <span>Launch Recon Workbench</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Interactive ThreeUI Multi-Mode Cyber Graphics Stage -->
-                    <div class="gfx-stage-card" id="posture-hud-panel">
-                        <div class="gfx-stage-head">
-                            <div class="gfx-title-wrap">
-                                <i data-lucide="cpu" class="lucide-xs phud-amber"></i>
-                                <span class="gfx-stage-title" id="gfx-mode-label">ISOMETRIC LOGIC CORE</span>
-                            </div>
-                            <div class="gfx-mode-tabs" role="tablist">
-                                <button type="button" class="gfx-tab active" data-gfx-mode="core">Core</button>
-                                <button type="button" class="gfx-tab" data-gfx-mode="globe">Globe</button>
-                                <button type="button" class="gfx-tab" data-gfx-mode="wave">Wave</button>
-                            </div>
-                        </div>
-
-                        <div class="gfx-canvas-wrap" id="hero-gfx-container">
-                            <canvas id="hero-gfx-canvas"></canvas>
-                            <div class="gfx-hud-corner gfx-hud-tl">
-                                <span class="gfx-hud-tag">SYS // TELEMETRY</span>
-                                <span class="gfx-hud-coord" id="gfx-live-coord">X: 0.00  Y: 0.00</span>
-                            </div>
-                            <div class="gfx-hud-corner gfx-hud-tr">
-                                <span class="bklit-pill" id="gfx-fps-pill">60 FPS</span>
-                            </div>
-                        </div>
-
-                        <div class="gfx-QuickBar">
-                            <div class="gfx-metrics-strip">
-                                <div class="gfx-mini-stat">
-                                    <span class="gfx-mini-lbl">Headers</span>
-                                    <span class="gfx-mini-val" id="hud-sec-score">—/100</span>
-                                </div>
-                                <div class="gfx-mini-stat">
-                                    <span class="gfx-mini-lbl">WAF</span>
-                                    <span class="gfx-mini-val" id="hud-waf-status">Standby</span>
-                                </div>
-                                <div class="gfx-mini-stat">
-                                    <span class="gfx-mini-lbl">Keep-Alive</span>
-                                    <span class="gfx-mini-val" id="hud-conn-posture">Bounded</span>
-                                </div>
-                                <div class="gfx-mini-stat">
-                                    <span class="gfx-mini-lbl">Findings</span>
-                                    <span class="gfx-mini-val phud-amber" id="hud-vuln-total">0</span>
-                                </div>
-                            </div>
-                            <div class="gfx-quick-audit-row">
-                                <input type="text" id="hero-quick-target" class="phud-input" value="http://127.0.0.1:8083" placeholder="https://example.com">
-                                <button type="button" class="btn-primary phud-btn" id="hero-btn-quick-audit">
-                                    <i data-lucide="scan-line" class="lucide-xs"></i>
-                                    <span>Audit</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- Magic UI Bento KPI Grid (4 Cards) -->
                 <div class="stats-grid bento-stats">
@@ -326,7 +235,7 @@
                             </p>
                             <div class="field" style="margin-bottom: 12px;">
                                 <label class="flabel" for="selftest-ip-input">Target Host / IPv4</label>
-                                <input type="text" id="selftest-ip-input" placeholder="e.g. 127.0.0.1" value="127.0.0.1" class="finput">
+                                <input type="text" id="selftest-ip-input" placeholder="Enter target host or IPv4 address" value="" class="finput">
                             </div>
                             <div class="diag-actions">
                                 <button class="btn-primary" id="btn-selftest-start" style="flex:1;justify-content:center">
@@ -350,12 +259,6 @@
                         <div class="bklit-eyebrow"><i data-lucide="layers" class="lucide-xs"></i><span>VERIFICATION SUITE</span></div>
                         <h1>Security Test Modules</h1>
                         <p>Select an assessment vector and configure request parameters</p>
-                    </div>
-                    <div class="preset-group">
-                        <span class="preset-label">Quick Target:</span>
-                        <button type="button" class="btn-ghost-sm" id="preset-local-target">
-                            <i data-lucide="server" class="lucide-xs"></i> Honeypot (:8083)
-                        </button>
                     </div>
                 </div>
 
@@ -457,7 +360,7 @@
                                 <input type="hidden" id="attack-type-input" value="ddos">
                                 <div class="field">
                                     <label class="flabel" for="url-input">Target Endpoint URL / Host</label>
-                                    <input class="finput" type="text" id="url-input" placeholder="http://127.0.0.1:8083" value="http://127.0.0.1:8083" required>
+                                    <input class="finput" type="text" id="url-input" placeholder="Enter target URL or host" value="" required>
                                     <span class="hint">Specify full protocol (`http://` or `https://`) for web modules, or bare IP/hostname for network scans.</span>
                                 </div>
                                 <div class="field-row">
@@ -478,7 +381,7 @@
                                 <div id="brute-fields" class="sub-config-panel" style="display:none">
                                     <div class="field">
                                         <label class="flabel" for="username-input">Target Username</label>
-                                        <input class="finput" type="text" id="username-input" value="admin">
+                                        <input class="finput" type="text" id="username-input" placeholder="Enter target username" value="">
                                     </div>
                                     <div class="field">
                                         <label class="flabel" for="wordlist-input">Custom Wordlist Path (Optional)</label>
@@ -542,7 +445,7 @@
                                     </div>
                                     <div class="field" style="margin-bottom:0">
                                         <label class="flabel" for="xss-payload-input">Custom Canary / Alert Message</label>
-                                        <input class="finput" type="text" id="xss-payload-input" placeholder="e.g. cyberstrike_audit" value="improvements nedded">
+                                        <input class="finput" type="text" id="xss-payload-input" placeholder="Enter custom canary text" value="">
                                     </div>
                                 </div>
 
@@ -569,11 +472,11 @@
                                 <div id="ssrf-fields" class="sub-config-panel" style="display:none">
                                     <div class="field">
                                         <label class="flabel">Internal Metadata / Loopback Probe</label>
-                                        <input class="finput" type="text" placeholder="e.g. 169.254.169.254 (Cloud Metadata)">
+                                        <input class="finput" type="text" placeholder="Enter internal metadata address">
                                     </div>
                                     <div class="field" style="margin-bottom:0">
                                         <label class="flabel">OOB Callback Server (Optional)</label>
-                                        <input class="finput" type="text" placeholder="https://collaborator.example.com">
+                                        <input class="finput" type="text" placeholder="Enter callback server URL">
                                     </div>
                                 </div>
 
@@ -607,7 +510,7 @@
                                 <div id="header_inj-fields" class="sub-config-panel" style="display:none">
                                     <div class="field" style="margin-bottom:0">
                                         <label class="flabel" for="header-payload-input">Custom Header Injection Canary</label>
-                                        <input class="finput" type="text" id="header-payload-input" placeholder="e.g. Set-Cookie: user=admin" value="Set-Cookie: user=admin">
+                                        <input class="finput" type="text" id="header-payload-input" placeholder="Enter custom header line" value="">
                                         <span class="hint">Encoded CRLF (`%0d%0a`) sequences are tested automatically against redirect and header reflection endpoints.</span>
                                     </div>
                                 </div>
@@ -616,7 +519,7 @@
                                     <div class="field-row">
                                         <div class="field" style="margin-bottom:0">
                                             <label class="flabel" for="ip-stress-target">Target Host / IP</label>
-                                            <input class="finput" type="text" id="ip-stress-target" placeholder="e.g. 127.0.0.1">
+                                            <input class="finput" type="text" id="ip-stress-target" placeholder="Enter target IPv4 address">
                                         </div>
                                         <div class="field" style="margin-bottom:0">
                                             <label class="flabel" for="ip-stress-proto">Transport Protocol</label>
@@ -632,7 +535,7 @@
                                 <div id="phone-probe-fields" class="sub-config-panel" style="display:none">
                                     <div class="field" style="margin-bottom:0">
                                         <label class="flabel" for="phone-probe-target">Target E.164 Phone Number</label>
-                                        <input class="finput" type="text" id="phone-probe-target" placeholder="e.g. +14155552671">
+                                        <input class="finput" type="text" id="phone-probe-target" placeholder="Enter E.164 phone number">
                                         <span class="hint">Performs passive numbering plan validation, carrier lookup, region geocoding, and timezone mapping.</span>
                                     </div>
                                 </div>
@@ -673,7 +576,7 @@
                         <div class="card-body">
                             <div class="field">
                                 <label class="flabel" for="phish-target">Target Organization Domain</label>
-                                <input class="finput" type="text" id="phish-target" placeholder="example.com" value="example.com">
+                                <input class="finput" type="text" id="phish-target" placeholder="Enter target domain" value="">
                             </div>
                             <div class="field-row">
                                 <div class="field">
@@ -716,11 +619,11 @@
                             <div class="field-row">
                                 <div class="field">
                                     <label class="flabel" for="persist-lhost">Audit Collector IP</label>
-                                    <input class="finput" type="text" id="persist-lhost" value="10.10.10.10">
+                                    <input class="finput" type="text" id="persist-lhost" placeholder="Enter collector host or IP" value="">
                                 </div>
                                 <div class="field">
                                     <label class="flabel" for="persist-lport">Port</label>
-                                    <input class="finput" type="text" id="persist-lport" value="4444">
+                                    <input class="finput" type="text" id="persist-lport" placeholder="Enter port" value="">
                                 </div>
                             </div>
                             <button class="btn-primary" id="run-persistence"><i data-lucide="file-code" class="lucide-xs"></i> Load Reference</button>
@@ -757,21 +660,21 @@
                             <div class="field-row">
                                 <div class="field">
                                     <label class="flabel" for="lat-ip">Target Host IP</label>
-                                    <input class="finput" type="text" id="lat-ip" value="192.168.1.100">
+                                    <input class="finput" type="text" id="lat-ip" placeholder="Enter target IP" value="">
                                 </div>
                                 <div class="field">
                                     <label class="flabel" for="lat-domain">AD Domain</label>
-                                    <input class="finput" type="text" id="lat-domain" value="CORP">
+                                    <input class="finput" type="text" id="lat-domain" placeholder="Enter domain" value="">
                                 </div>
                             </div>
                             <div class="field-row">
                                 <div class="field">
                                     <label class="flabel" for="lat-user">Account</label>
-                                    <input class="finput" type="text" id="lat-user" value="administrator">
+                                    <input class="finput" type="text" id="lat-user" placeholder="Enter account" value="">
                                 </div>
                                 <div class="field">
                                     <label class="flabel" for="lat-lhost">Operator Host</label>
-                                    <input class="finput" type="text" id="lat-lhost" value="10.10.10.10">
+                                    <input class="finput" type="text" id="lat-lhost" placeholder="Enter operator host" value="">
                                 </div>
                             </div>
                             <button class="btn-primary" id="run-lateral"><i data-lucide="git-branch" class="lucide-xs"></i> Load Playbook</button>
@@ -799,7 +702,7 @@
                             <div class="recon-input-bar">
                                 <div class="field" style="flex:1;margin:0">
                                     <label class="flabel" for="recon-target">Target Domain / URL / IPv4 / E.164 Phone</label>
-                                    <input class="finput" type="text" id="recon-target" placeholder="example.com, 127.0.0.1:8083, or +14155552671" value="http://127.0.0.1:8083">
+                                    <input class="finput" type="text" id="recon-target" placeholder="Enter target domain, URL, IPv4, or phone number" value="">
                                 </div>
                             </div>
 
@@ -911,8 +814,8 @@
                         </div>
                         <div class="card-body">
                             <div class="field">
-                                <label class="flabel" for="backend-url-input">Remote Host / Hugging Face Space URL</label>
-                                <input class="finput" type="text" id="backend-url-input" placeholder="e.g. adityax26-cyberstrike-backend.hf.space">
+                                <label class="flabel" for="backend-url-input">Remote Backend Endpoint</label>
+                                <input class="finput" type="text" id="backend-url-input" placeholder="Enter remote backend URL or host" value="">
                                 <span class="hint">Leave blank when running locally to auto-connect to the local FastAPI instance.</span>
                             </div>
                             <button class="btn-primary" id="btn-save-backend">
@@ -941,7 +844,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=22"></script>
+    <script src="/static/app.js?v=23"></script>
 
 </body>
 </html>

