@@ -88,7 +88,7 @@ function initAttackSelector() {
             if (portBox)  portBox.style.display  = t === 'port'  ? 'block' : 'none';
 
             const showBoth     = ['ddos', 'slowloris', 'brute', 'ip_stress'].includes(t);
-            const hideDuration = ['sql', 'xss', 'stored_xss', 'csrf', 'idor', 'redirect', 'header_inj', 'cmd', 'ssrf', 'xxe', 'traversal', 'port'].includes(t);
+            const hideDuration = ['sql', 'xss', 'stored_xss', 'csrf', 'idor', 'redirect', 'header_inj', 'cmd', 'ssrf', 'xxe', 'traversal', 'port', 'ssti', 'nosql', 'jwt_audit', 'graphql_audit', 'cors_audit', 'host_header'].includes(t);
 
             if (intGrp)  intGrp.style.display  = showBoth ? 'block' : 'none';
             if (thrdGrp) thrdGrp.style.display = showBoth ? 'block' : 'none';
@@ -731,21 +731,24 @@ function wireButtons() {
 
     // Recon buttons — endpoint : label
     var reconMap = [
-        ['run-dns',          'dns',          'DNS Records'],
-        ['run-whois',        'whois',        'WHOIS / RDAP'],
-        ['run-ssl',          'ssl',          'SSL/TLS Certificate'],
-        ['run-ip',           'ip',           'IP Geolocation'],
-        ['run-phone',        'phone',        'Phone OSINT'],
-        ['run-headers',      'headers',      'HTTP Security Headers'],
-        ['run-fingerprint',  'fingerprint',  'Tech Fingerprint'],
-        ['run-subdomains',   'subdomains',   'Subdomain Discovery'],
-        ['run-dorks',        'dorks',        'Search Engine Dorks'],
-        ['run-zonetransfer', 'zonetransfer', 'DNS Zone Transfer'],
-        ['run-waf',          'waf',          'WAF Fingerprinting'],
-        ['run-ratelimit',    'ratelimit',    'Rate Limit Probe'],
-        ['run-breaches',     'breaches',     'Breach Exposure'],
-        ['run-ioc',          'ioc',          'IOC Threat Intel'],
-        ['run-wifi-audit',   'wifi-audit',   'Wi-Fi 802.11w Posture Audit']
+        ['run-dns',           'dns',            'DNS Records'],
+        ['run-whois',         'whois',          'WHOIS / RDAP'],
+        ['run-ssl',           'ssl',            'SSL/TLS Certificate'],
+        ['run-ip',            'ip',             'IP Geolocation'],
+        ['run-phone',         'phone',          'Phone OSINT'],
+        ['run-headers',       'headers',        'HTTP Security Headers'],
+        ['run-fingerprint',   'fingerprint',    'Tech Fingerprint'],
+        ['run-subdomains',    'subdomains',     'Subdomain Discovery'],
+        ['run-dorks',         'dorks',          'Search Engine Dorks'],
+        ['run-zonetransfer',  'zonetransfer',   'DNS Zone Transfer'],
+        ['run-waf',           'waf',            'WAF Fingerprinting'],
+        ['run-ratelimit',     'ratelimit',      'Rate Limit Probe'],
+        ['run-breaches',      'breaches',       'Breach Exposure'],
+        ['run-ioc',           'ioc',            'IOC Threat Intel'],
+        ['run-wifi-audit',    'wifi-audit',     'Wi-Fi 802.11w Posture Audit'],
+        ['run-email-sec',     'email-security', 'Email Security (DMARC/SPF/DKIM)'],
+        ['run-cors-matrix',   'cors-matrix',    'CORS Trust Matrix'],
+        ['run-api-discovery', 'api-discovery',  'API Surface Discovery']
     ];
     reconMap.forEach(function(row) {
         var btn = el(row[0]);

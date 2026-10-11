@@ -270,7 +270,7 @@
                                 <i data-lucide="list-filter" class="lucide-xs"></i>
                                 <span>Assessment Vectors</span>
                             </div>
-                            <span class="bklit-badge">16 Modules</span>
+                            <span class="bklit-badge">22 Modules</span>
                         </div>
                         <div class="card-body atk-list">
                             <!-- ── Web App ── -->
@@ -303,11 +303,31 @@
                                 <span class="atk-ico"><i class="fas fa-file-code"></i></span>
                                 <div><div class="atk-name">Header Injection</div><div class="atk-desc">CRLF response splitting check</div></div>
                             </div>
-                            <!-- ── Server-Side ── -->
-                            <div class="atk-group-label">Server-Side</div>
+                            <div class="atk-item" data-attack="cors_audit" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-arrows-left-right"></i></span>
+                                <div><div class="atk-name">CORS Trust Audit</div><div class="atk-desc">Origin reflection &amp; null trust</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="host_header" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-route"></i></span>
+                                <div><div class="atk-name">Host Header Poisoning</div><div class="atk-desc">X-Forwarded-Host routing check</div></div>
+                            </div>
+                            <!-- ── Server-Side & API ── -->
+                            <div class="atk-group-label">Server-Side &amp; API</div>
                             <div class="atk-item" data-attack="cmd" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-terminal"></i></span>
                                 <div><div class="atk-name">Command Injection</div><div class="atk-desc">OS command execution probe</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="ssti" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-brackets-curly"></i></span>
+                                <div><div class="atk-name">SSTI Template Probe</div><div class="atk-desc">Jinja2 / Twig / ERB evaluation</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="nosql" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-layer-group"></i></span>
+                                <div><div class="atk-name">NoSQL Injection</div><div class="atk-desc">MongoDB $ne / $gt operator check</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="graphql_audit" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-diagram-project"></i></span>
+                                <div><div class="atk-name">GraphQL Introspection</div><div class="atk-desc">Schema dump &amp; query batching</div></div>
                             </div>
                             <div class="atk-item" data-attack="ssrf" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-globe"></i></span>
@@ -325,8 +345,12 @@
                                 <span class="atk-ico"><i class="fas fa-hourglass-half"></i></span>
                                 <div><div class="atk-name">Slowloris</div><div class="atk-desc">Keep-alive connection hold test</div></div>
                             </div>
-                            <!-- ── Network ── -->
+                            <!-- ── Network & Auth ── -->
                             <div class="atk-group-label">Network &amp; Auth</div>
+                            <div class="atk-item" data-attack="jwt_audit" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-id-badge"></i></span>
+                                <div><div class="atk-name">JWT Token Auditor</div><div class="atk-desc">alg:none &amp; weak HMAC verification</div></div>
+                            </div>
                             <div class="atk-item" data-attack="brute" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-key"></i></span>
                                 <div><div class="atk-name">Brute Force</div><div class="atk-desc">Auth rate-limit &amp; lockout test</div></div>
@@ -692,7 +716,7 @@
                     <div>
                         <div class="bklit-eyebrow"><i data-lucide="radar" class="lucide-xs"></i><span>PASSIVE INTELLIGENCE WORKBENCH</span></div>
                         <h1>Reconnaissance &amp; Posture Auditing</h1>
-                        <p>15 non-intrusive OSINT, DNS, TLS, HTTP Header, and 802.11w wireless compliance auditors</p>
+                        <p>18 non-intrusive OSINT, DNS, TLS, Email Security, CORS Matrix, API Surface, and 802.11w wireless compliance auditors</p>
                     </div>
                 </div>
 
@@ -722,6 +746,9 @@
                                 <button class="btn-sm" id="run-breaches"><i data-lucide="database" class="lucide-xs"></i> Breach Check</button>
                                 <button class="btn-sm" id="run-ioc"><i data-lucide="crosshair" class="lucide-xs"></i> IOC Threat Intel</button>
                                 <button class="btn-sm" id="run-wifi-audit"><i data-lucide="wifi" class="lucide-xs"></i> Wi-Fi 802.11w Audit</button>
+                                <button class="btn-sm" id="run-email-sec"><i data-lucide="mail-check" class="lucide-xs"></i> Email Security (DMARC/SPF)</button>
+                                <button class="btn-sm" id="run-cors-matrix"><i data-lucide="git-compare" class="lucide-xs"></i> CORS Trust Matrix</button>
+                                <button class="btn-sm" id="run-api-discovery"><i data-lucide="compass" class="lucide-xs"></i> API Surface Discovery</button>
                             </div>
                         </div>
                     </div>
@@ -844,7 +871,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=23"></script>
+    <script src="/static/app.js?v=24"></script>
 
 </body>
 </html>
