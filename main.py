@@ -57,26 +57,30 @@ class AttackResponse(BaseModel):
     attack_id: Optional[str] = None
 
 # Global metrics & synchronization lock
-metrics_lock = asyncio.Lock()
 MAX_TIME_SAMPLES = 1000
 MAX_VULN_ENTRIES = 500
 
-metrics = {
-    "total_requests": 0,
-    "successful_requests": 0,
-    "failed_requests": 0,
-    "start_time": None,
-    "attacks_running": False,
-    "current_attacks": [],
-    "response_times": [],
-    "request_history": [],
-    "vulnerabilities_found": [],
-    "attack_history": [],
-    "system_status": "ready"
-}
+class SecureMetrics(dict):
+    def __init__(self) -> None:
+        super().__init__()
+        self.lock = asyncio.Lock()
+        self["total_requests"] = 0
+        self["successful_requests"] = 0
+        self["failed_requests"] = 0
+        self["start_time"] = None
+        self["attacks_running"] = False
+        self["current_attacks"] = []
+        self["response_times"] = []
+        self["request_history"] = []
+        self["vulnerabilities_found"] = []
+        self["attack_history"] = []
+        self["system_status"] = "ready"
+
+metrics = SecureMetrics()
+metrics_lock = metrics.lock
 
 async def record_request_metric(success: bool, req_time: Optional[float] = None, status_code: Optional[int] = None):
-    async with metrics_lock:
+    async with metrics.lock:
         metrics["total_requests"] += 1
         if success:
             metrics["successful_requests"] += 1
@@ -92,7 +96,7 @@ async def record_request_metric(success: bool, req_time: Optional[float] = None,
                 del metrics["request_history"][:-MAX_TIME_SAMPLES]
 
 async def record_vulnerability(vuln: Dict[str, Any]) -> bool:
-    async with metrics_lock:
+    async with metrics.lock:
         dedup_key = (vuln.get("type"), vuln.get("url"), vuln.get("payload"))
         for existing in metrics["vulnerabilities_found"]:
             if (existing.get("type"), existing.get("url"), existing.get("payload")) == dedup_key:
@@ -107,29 +111,41 @@ async def record_vulnerability(vuln: Dict[str, Any]) -> bool:
 
 # WebSocket connection manager
 class ConnectionManager:
-    def __init__(self):
+    def __init__(self) -> None:
         self.active_connections: List[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         self.active_connections.append(websocket)
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket) -> None:
         if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
+            try:
+                self.active_connections.remove(websocket)
+            except ValueError:
+                pass
 
-    async def send_personal_message(self, message: str, websocket: WebSocket):
-        await websocket.send_text(message)
+    async def send_personal_message(self, message: str, websocket: WebSocket) -> None:
+        try:
+            await websocket.send_text(message)
+        except Exception:
+            self.disconnect(websocket)
 
-    async def broadcast(self, message: str):
+    async def broadcast(self, message: str) -> None:
         dead = []
         for connection in list(self.active_connections):
             try:
                 await connection.send_text(message)
-            except Exception:
+            except (BrokenPipeError, Exception):
                 dead.append(connection)
         for d in dead:
             self.disconnect(d)
+
+    async def broadcast_json(self, data_type: str, payload_data: Optional[Dict[str, Any]] = None) -> None:
+        msg_payload: Dict[str, Any] = {"type": data_type}
+        if payload_data is not None:
+            msg_payload["data"] = payload_data
+        await self.broadcast(json.dumps(msg_payload))
 
 manager = ConnectionManager()
 
@@ -2315,6 +2331,64 @@ async def redteam_lateral(req: RedTeamRequest):
         "recommended_tools": ["Impacket", "CrackMapExec", "Evil-WinRM", "Mimikatz", "Rubeus", "BloodHound", "SharpHound", "Cobalt Strike"],
         "note": "Use only on networks you own or have explicit written authorization to test."})
 
+@app.get("/api/recon/wifi-audit")
+async def wifi_security_audit():
+    """Passive WLAN posture & 802.11w (PMF) compliance auditor."""
+    import subprocess
+    networks: List[Dict[str, Any]] = []
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "netsh", "wlan", "show", "networks", "mode=bssid",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=6.0)
+        text = stdout.decode("utf-8", errors="replace")
+        current: Optional[Dict[str, Any]] = None
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if line.startswith("SSID ") and ":" in line:
+                if current:
+                    networks.append(current)
+                ssid_val = line.split(":", 1)[1].strip() or "<Hidden SSID>"
+                current = {"ssid": ssid_val, "auth": "Unknown", "encryption": "Unknown", "bssids": []}
+            elif current is not None:
+                if line.startswith("Authentication") and ":" in line:
+                    current["auth"] = line.split(":", 1)[1].strip()
+                elif line.startswith("Encryption") and ":" in line:
+                    current["encryption"] = line.split(":", 1)[1].strip()
+                elif line.startswith("BSSID ") and ":" in line:
+                    bssid_mac = line.split(":", 1)[1].strip()
+                    current["bssids"].append({"bssid": bssid_mac, "signal": "N/A", "channel": "N/A", "radio": "N/A"})
+                elif line.startswith("Signal") and ":" in line and current["bssids"]:
+                    current["bssids"][-1]["signal"] = line.split(":", 1)[1].strip()
+                elif line.startswith("Channel") and ":" in line and current["bssids"]:
+                    current["bssids"][-1]["channel"] = line.split(":", 1)[1].strip()
+                elif line.startswith("Radio type") and ":" in line and current["bssids"]:
+                    current["bssids"][-1]["radio"] = line.split(":", 1)[1].strip()
+        if current:
+            networks.append(current)
+    except Exception:
+        pass
+
+    for net in networks:
+        auth_upper = net["auth"].upper()
+        if "WPA3" in auth_upper:
+            net["pmf_80211w"] = "Mandatory (Protected)"
+            net["risk"] = "low"
+        elif "WPA2" in auth_upper:
+            net["pmf_80211w"] = "Optional (Verify 802.11w enabled)"
+            net["risk"] = "medium"
+        else:
+            net["pmf_80211w"] = "Unprotected"
+            net["risk"] = "high"
+
+    return JSONResponse(content={
+        "scanned_at": datetime.now().isoformat(),
+        "network_count": len(networks),
+        "networks": networks
+    })
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
@@ -2327,6 +2401,27 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             # Keep connection alive
             await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception:
+        manager.disconnect(websocket)
+
+@app.websocket("/ws/dashboard")
+async def websocket_dashboard_endpoint(websocket: WebSocket):
+    await manager.connect(websocket)
+    await manager.send_personal_message(json.dumps({"type": "log", "message": "Connected to CyberStrike Suite", "level": "info"}), websocket)
+    try:
+        while True:
+            await websocket.send_json({
+                "type": "system_status",
+                "status": metrics.get("system_status", "ready"),
+                "stats": {
+                    "total_requests": metrics["total_requests"],
+                    "successful_requests": metrics["successful_requests"],
+                    "failed_requests": metrics["failed_requests"]
+                }
+            })
+            await asyncio.sleep(2.0)
     except WebSocketDisconnect:
         manager.disconnect(websocket)
     except Exception:
