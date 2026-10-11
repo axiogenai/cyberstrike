@@ -133,6 +133,17 @@
                         <div class="log-line log-info">› System initialized. Ready for testing.</div>
                     </div>
                 </div>
+                <div class="glass-card" style="margin-top:20px">
+                    <div class="card-head"><i class="fas fa-crosshairs"></i> Quick Self-Test</div>
+                    <div class="card-body" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+                        <div style="flex:1;min-width:200px">
+                            <p style="margin:0;margin-bottom:8px;font-size:0.85rem;color:var(--t2)">One-click IP stress test — enter your IP to test it.</p>
+                            <input type="text" id="selftest-ip-input" placeholder="e.g. 192.168.1.100" class="finput" style="max-width: 250px;">
+                        </div>
+                        <button class="btn-primary" id="btn-selftest-start" style="min-width:140px"><i class="fas fa-bolt"></i> Launch Self-Test</button>
+                        <button class="btn-danger" id="btn-selftest-stop" disabled style="min-width:120px"><i class="fas fa-stop"></i> Stop</button>
+                    </div>
+                </div>
             </section>
 
             <!-- ─── Attacks ─── -->
@@ -207,6 +218,14 @@
                                 <span class="atk-ico"><i class="fas fa-network-wired"></i></span>
                                 <div><div class="atk-name">Port Scan</div><div class="atk-desc">Open port discovery</div></div>
                             </div>
+                            <div class="atk-item" data-attack="ip_stress" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-server"></i></span>
+                                <div><div class="atk-name">IP Stress Test</div><div class="atk-desc">TCP/UDP load on IP</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="phone_probe" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-phone-volume"></i></span>
+                                <div><div class="atk-name">Phone OSINT Probe</div><div class="atk-desc">Carrier & geo intel</div></div>
+                            </div>
                         </div>
                     </div>
                     <div class="glass-card">
@@ -221,7 +240,7 @@
                                 <div class="field-row">
                                     <div class="field" id="intensity-group">
                                         <label class="flabel" for="intensity-input">Intensity (req/s)</label>
-                                        <input class="finput" type="number" id="intensity-input" min="1" max="100" value="5">
+                                        <input class="finput" type="number" id="intensity-input" min="1" max="1000" value="1000">
                                     </div>
                                     <div class="field">
                                         <label class="flabel" for="duration-input">Duration (sec)</label>
@@ -230,7 +249,7 @@
                                 </div>
                                 <div class="field" id="threads-group">
                                     <label class="flabel" for="threads-input">Threads</label>
-                                    <input class="finput" type="number" id="threads-input" min="1" max="50" value="10">
+                                    <input class="finput" type="number" id="threads-input" min="1" max="200" value="200">
                                 </div>
                                 <div id="brute-fields" style="display:none">
                                     <div class="field">
@@ -283,6 +302,7 @@
                                             <label class="flabel">Vector</label>
                                             <select class="finput">
                                                 <option>Reflected (GET/POST)</option>
+                                                <option value="stored_xss">Stored XSS</option>
                                                 <option>Stored (Persistent)</option>
                                                 <option>DOM-Based</option>
                                             </select>
@@ -367,6 +387,31 @@
                                         <label class="flabel">Custom Injection Payload</label>
                                         <input class="finput" type="text" id="header-payload-input" placeholder="e.g. Set-Cookie: user=admin" value="Set-Cookie: user=admin">
                                         <span class="hint">Payload will be prepended with CRLF (%0d%0a) automatically.</span>
+                                    </div>
+                                </div>
+
+                                <div id="ip-stress-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                    <div class="field-row">
+                                        <div class="field">
+                                            <label class="flabel">Target IP Address</label>
+                                            <input class="finput" type="text" id="ip-stress-target" placeholder="e.g. 192.168.1.1">
+                                        </div>
+                                        <div class="field">
+                                            <label class="flabel">Protocol</label>
+                                            <select class="finput" id="ip-stress-proto">
+                                                <option value="tcp">TCP</option>
+                                                <option value="udp">UDP</option>
+                                                <option value="both">Both</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div id="phone-probe-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                    <div class="field">
+                                        <label class="flabel">Target Phone Number</label>
+                                        <input class="finput" type="text" id="phone-probe-target" placeholder="e.g. +14155552671">
+                                        <span class="hint">Includes country code, carrier, geo, timezone, and validity probing.</span>
                                     </div>
                                 </div>
 
@@ -500,13 +545,15 @@
                     <div class="glass-card recon-target-card">
                         <div class="card-body recon-target-row">
                             <div class="field" style="flex:1;margin:0">
-                                <label class="flabel">Target Domain / URL</label>
-                                <input class="finput" type="text" id="recon-target" placeholder="example.com or https://example.com">
+                                <label class="flabel">Target (Domain / URL / IP / Phone)</label>
+                                <input class="finput" type="text" id="recon-target" placeholder="example.com, 8.8.8.8, or +1234567890">
                             </div>
                             <div class="recon-btn-group">
                                 <button class="btn-sm" id="run-dns">DNS</button>
                                 <button class="btn-sm" id="run-whois">WHOIS</button>
                                 <button class="btn-sm" id="run-ssl">SSL</button>
+                                <button class="btn-sm" id="run-ip">IP Info</button>
+                                <button class="btn-sm" id="run-phone">Phone Info</button>
                                 <button class="btn-sm" id="run-headers">Headers</button>
                                 <button class="btn-sm" id="run-fingerprint">Fingerprint</button>
                                 <button class="btn-sm" id="run-subdomains">Subdomains</button>
@@ -594,7 +641,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=10"></script>
+    <script src="/static/app.js?v=13"></script>
 
 </body>
 </html>

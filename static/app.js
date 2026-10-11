@@ -88,8 +88,8 @@ function initAttackSelector() {
             // For Port scan: Hide Intensity and Threads
             
             
-            const showBoth = ['ddos', 'slowloris', 'brute'].includes(t);
-            const hideDuration = ['sql', 'xss', 'csrf', 'idor', 'redirect', 'header_inj', 'cmd', 'ssrf', 'xxe', 'traversal', 'port'].includes(t);
+            const showBoth = ['ddos', 'slowloris', 'brute', 'ip_stress'].includes(t);
+            const hideDuration = ['sql', 'xss', 'stored_xss', 'csrf', 'idor', 'redirect', 'header_inj', 'cmd', 'ssrf', 'xxe', 'traversal', 'port'].includes(t);
 
             if (intGrp)    intGrp.style.display     = showBoth ? 'block'  : 'none';
             if (thrdGrp)   thrdGrp.style.display    = showBoth ? 'block'  : 'none';
@@ -97,21 +97,44 @@ function initAttackSelector() {
             const durGrp = el('duration-input')?.closest('.field');
             if (durGrp) durGrp.style.display = hideDuration ? 'none' : 'block';
 
-             const sqlFields = el('sql-fields');
-             const xssFields = el('xss-fields');
-             const cmdFields = el('cmd-fields');
-             const ssrfFields = el('ssrf-fields');
-             const xxeFields = el('xxe-fields');
-             const travFields = el('traversal-fields');
+             const sqlFields    = el('sql-fields');
+             const xssFields    = el('xss-fields');
+             const cmdFields    = el('cmd-fields');
+             const ssrfFields   = el('ssrf-fields');
+             const xxeFields    = el('xxe-fields');
+             const travFields   = el('traversal-fields');
              const headerFields = el('header_inj-fields');
+             const ipFields     = el('ip-stress-fields');
+             const phoneFields  = el('phone-probe-fields');
  
-             if (sqlFields) sqlFields.style.display = (t === 'sql') ? 'block' : 'none';
-             if (xssFields) xssFields.style.display = (t === 'xss') ? 'block' : 'none';
-             if (cmdFields) cmdFields.style.display = (t === 'cmd') ? 'block' : 'none';
-             if (ssrfFields) ssrfFields.style.display = (t === 'ssrf') ? 'block' : 'none';
-             if (xxeFields) xxeFields.style.display = (t === 'xxe') ? 'block' : 'none';
-             if (travFields) travFields.style.display = (t === 'traversal') ? 'block' : 'none';
+             if (sqlFields)    sqlFields.style.display    = (t === 'sql') ? 'block' : 'none';
+             if (xssFields)    xssFields.style.display    = (t === 'xss' || t === 'stored_xss') ? 'block' : 'none';
+             if (cmdFields)    cmdFields.style.display    = (t === 'cmd') ? 'block' : 'none';
+             if (ssrfFields)   ssrfFields.style.display   = (t === 'ssrf') ? 'block' : 'none';
+             if (xxeFields)    xxeFields.style.display    = (t === 'xxe') ? 'block' : 'none';
+             if (travFields)   travFields.style.display   = (t === 'traversal') ? 'block' : 'none';
              if (headerFields) headerFields.style.display = (t === 'header_inj') ? 'block' : 'none';
+             if (ipFields)     ipFields.style.display     = (t === 'ip_stress') ? 'block' : 'none';
+             if (phoneFields)  phoneFields.style.display  = (t === 'phone_probe') ? 'block' : 'none';
+
+             // Auto-fill the main URL input from the dedicated target fields
+             const urlInput = el('url-input');
+             if (t === 'ip_stress' && urlInput) {
+                 const ipTarget = el('ip-stress-target');
+                 if (ipTarget) {
+                     ipTarget.oninput = () => { urlInput.value = ipTarget.value; };
+                     urlInput.value = ipTarget.value;
+                 }
+                 const protoSel = el('ip-stress-proto');
+                 if (protoSel) protoSel.onchange = () => {};
+             }
+             if (t === 'phone_probe' && urlInput) {
+                 const phoneTarget = el('phone-probe-target');
+                 if (phoneTarget) {
+                     phoneTarget.oninput = () => { urlInput.value = phoneTarget.value; };
+                     urlInput.value = phoneTarget.value;
+                 }
+             }
 
 
         });
@@ -544,6 +567,8 @@ function wireButtons() {
         ['run-dns',          'dns',          'DNS Lookup'],
         ['run-whois',        'whois',        'WHOIS'],
         ['run-ssl',          'ssl',          'SSL/TLS'],
+        ['run-ip',           'ip',           'IP Info'],
+        ['run-phone',        'phone',        'Phone Info'],
         ['run-headers',      'headers',      'HTTP Headers'],
         ['run-fingerprint',  'fingerprint',  'Fingerprint'],
         ['run-subdomains',   'subdomains',   'Subdomains'],
@@ -593,6 +618,49 @@ function wireButtons() {
             username:  el('lat-user')   ? el('lat-user').value   : '',
             lhost:     el('lat-lhost')  ? el('lat-lhost').value  : ''
         }}).then(function(d) { showRT(d, 'lateral-result'); });
+    };
+
+    // ── Self-Test Buttons ───────────────────────────────────────────
+    var selfStart = el('btn-selftest-start');
+    var selfStop  = el('btn-selftest-stop');
+
+    if (selfStart) selfStart.onclick = async function() {
+        var ipInput = el('selftest-ip-input');
+        var targetIp = ipInput ? ipInput.value.trim() : '';
+        if (!targetIp) {
+            alert('Please enter an IP address to test.');
+            return;
+        }
+
+        selfStart.disabled = true;
+        if (selfStop) selfStop.disabled = false;
+        addLog(`[Self-Test] Launching IP stress test at ${targetIp}...`, 'warning');
+        try {
+            var urls = getBackendUrls();
+            var r = await fetch(urls.http + '/api/selftest/start', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target_ip: targetIp })
+            });
+            var d = await r.json();
+            addLog('[Self-Test] ' + (d.message || 'Started'), d.success ? 'success' : 'error');
+        } catch(e) {
+            addLog('[Self-Test] Error: ' + e.message, 'error');
+            selfStart.disabled = false;
+            if (selfStop) selfStop.disabled = true;
+        }
+    };
+
+    if (selfStop) selfStop.onclick = async function() {
+        selfStop.disabled = true;
+        try {
+            var urls = getBackendUrls();
+            await fetch(urls.http + '/api/attack/stop', { method: 'POST' });
+            addLog('[Self-Test] Stop command sent.', 'warning');
+        } catch(e) {
+            addLog('[Self-Test] Stop error: ' + e.message, 'error');
+        }
+        if (selfStart) selfStart.disabled = false;
     };
 }
 

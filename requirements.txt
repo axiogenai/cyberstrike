@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+aiohttp
+pydantic
+dnspython
+cryptography
+phonenumbers
+websockets
+python-multipart
