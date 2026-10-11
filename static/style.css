@@ -281,29 +281,9 @@ body {
     overflow: hidden;
     transition: border-color var(--t), transform 0.2s var(--ease);
 }
-.glass-card:hover { border-color: var(--gbh); }
+.glass-card:hover { border-color: var(--gb); }
 
 .spotlight-card { position: relative; overflow: hidden; }
-.spotlight-card::before {
-    content: '';
-    position: absolute; inset: 0;
-    pointer-events: none; opacity: 0;
-    transition: opacity 0.25s var(--ease);
-    background: radial-gradient(
-        520px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
-        rgba(255, 255, 255, 0.05),
-        transparent 40%
-    );
-    z-index: 0;
-}
-html[data-theme="light"] .spotlight-card::before {
-    background: radial-gradient(
-        520px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
-        rgba(15, 23, 42, 0.04),
-        transparent 40%
-    );
-}
-.spotlight-card:hover::before { opacity: 1; }
 .spotlight-card > * { position: relative; z-index: 1; }
 
 .card-head {
@@ -475,9 +455,7 @@ html[data-theme="light"] .spotlight-card::before {
     background: var(--g1); border: 1px solid var(--gb);
     border-radius: var(--r2); padding: 16px 18px;
     box-shadow: var(--card-shadow);
-    transition: border-color var(--t), transform 0.2s var(--ease);
 }
-.stat-card:hover { border-color: var(--gbh); transform: translateY(-1px); }
 .stat-top {
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 10px;

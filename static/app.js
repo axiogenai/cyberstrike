@@ -435,7 +435,7 @@ function createBklitLiveLineChart(container) {
                     <rect id="bklit-fade-mask-rect" x="0" y="-20" width="600" height="260" fill="url(#bklit-live-fade)" />
                 </mask>
             </defs>
-            <g id="bklit-chart-g" transform="translate(${MARGIN.left},${MARGIN.top})" style="cursor:crosshair;">
+            <g id="bklit-chart-g" transform="translate(${MARGIN.left},${MARGIN.top})">
                 <rect id="bklit-hit-rect" x="0" y="0" width="600" height="190" fill="transparent" />
                 <g id="bklit-grid-g"></g>
                 <g mask="url(#bklit-live-fade-mask)">
@@ -443,11 +443,7 @@ function createBklitLiveLineChart(container) {
                     <path id="bklit-line-path" fill="none" stroke="url(#bklit-live-line-grad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                 </g>
                 <line id="bklit-live-guide" x1="0" x2="600" y1="190" y2="190" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4,4" opacity="0.25" />
-                <g id="bklit-scrub-g" style="opacity:0;transition:opacity 0.15s ease;pointer-events:none;">
-                    <line id="bklit-scrub-line" x1="0" x2="0" y1="0" y2="190" stroke="#a1a1aa" stroke-width="1" stroke-dasharray="3,3" opacity="0.55" />
-                    <circle id="bklit-scrub-dot" cx="0" cy="0" r="4" fill="#f59e0b" stroke="var(--bg-card)" stroke-width="2" />
-                </g>
-                <g id="bklit-live-tip-g" style="transition:opacity 0.25s ease;pointer-events:none;">
+                <g id="bklit-live-tip-g" style="pointer-events:none;">
                     <circle id="bklit-live-halo" cx="0" cy="0" r="7" fill="#f59e0b" opacity="0.14" />
                     <circle id="bklit-live-dot" cx="0" cy="0" r="4" fill="#f59e0b" stroke="var(--bg-card)" stroke-width="2" />
                     <g id="bklit-live-badge" transform="translate(0,0)">
@@ -459,35 +455,22 @@ function createBklitLiveLineChart(container) {
         </svg>
         <div id="bklit-y-axis" style="position:absolute;top:${MARGIN.top}px;left:0;width:${MARGIN.left}px;overflow:hidden;pointer-events:none;"></div>
         <div id="bklit-x-axis" style="position:absolute;inset:0;pointer-events:none;"></div>
-        <div id="bklit-hover-pill" style="position:absolute;bottom:2px;left:0;transform:translateX(-50%);opacity:0;transition:opacity 0.15s ease;pointer-events:none;z-index:20;">
-            <div style="border-radius:9999px;background:var(--t1);color:var(--bg-base);padding:2px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.22);">
-                <span id="bklit-hover-pill-text"></span>
-            </div>
-        </div>
     `;
 
-    const svgEl        = container.querySelector('svg');
-    const chartG       = container.querySelector('#bklit-chart-g');
-    const hitRect      = container.querySelector('#bklit-hit-rect');
-    const gridG        = container.querySelector('#bklit-grid-g');
-    const fadeDotStop  = container.querySelector('#bklit-fade-dot-stop');
-    const fadeMaskRect = container.querySelector('#bklit-fade-mask-rect');
-    const areaPathEl   = container.querySelector('#bklit-area-path');
-    const linePathEl   = container.querySelector('#bklit-line-path');
-    const liveGuideEl  = container.querySelector('#bklit-live-guide');
-    const scrubG       = container.querySelector('#bklit-scrub-g');
-    const scrubLine    = container.querySelector('#bklit-scrub-line');
-    const scrubDot     = container.querySelector('#bklit-scrub-dot');
-    const liveTipG     = container.querySelector('#bklit-live-tip-g');
-    const liveHalo     = container.querySelector('#bklit-live-halo');
-    const liveDot      = container.querySelector('#bklit-live-dot');
-    const liveBadge    = container.querySelector('#bklit-live-badge');
-    const liveBadgeRect= container.querySelector('#bklit-live-badge-rect');
-    const liveBadgeText= container.querySelector('#bklit-live-badge-text');
-    const yAxisEl      = container.querySelector('#bklit-y-axis');
-    const xAxisEl      = container.querySelector('#bklit-x-axis');
-    const hoverPillEl  = container.querySelector('#bklit-hover-pill');
-    const hoverPillTxt = container.querySelector('#bklit-hover-pill-text');
+    const hitRect       = container.querySelector('#bklit-hit-rect');
+    const gridG         = container.querySelector('#bklit-grid-g');
+    const fadeDotStop   = container.querySelector('#bklit-fade-dot-stop');
+    const fadeMaskRect  = container.querySelector('#bklit-fade-mask-rect');
+    const areaPathEl    = container.querySelector('#bklit-area-path');
+    const linePathEl    = container.querySelector('#bklit-line-path');
+    const liveGuideEl   = container.querySelector('#bklit-live-guide');
+    const liveHalo      = container.querySelector('#bklit-live-halo');
+    const liveDot       = container.querySelector('#bklit-live-dot');
+    const liveBadge     = container.querySelector('#bklit-live-badge');
+    const liveBadgeRect = container.querySelector('#bklit-live-badge-rect');
+    const liveBadgeText = container.querySelector('#bklit-live-badge-text');
+    const yAxisEl       = container.querySelector('#bklit-y-axis');
+    const xAxisEl       = container.querySelector('#bklit-x-axis');
 
     // Create 5 reusable X-axis tick DOM nodes
     const xTickNodes = [];
@@ -495,22 +478,11 @@ function createBklitLiveLineChart(container) {
         const wrap = document.createElement('div');
         wrap.style.cssText = 'position:absolute;bottom:6px;width:0;display:flex;justify-content:center;';
         const span = document.createElement('span');
-        span.style.cssText = 'white-space:nowrap;font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--t3);transition:opacity 0.15s ease;';
+        span.style.cssText = 'white-space:nowrap;font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--t3);';
         wrap.appendChild(span);
         xAxisEl.appendChild(wrap);
         xTickNodes.push({ wrap, span });
     }
-
-    // Mouse / pointer scrubbing interactions
-    chartG.addEventListener('mousemove', (e) => {
-        const rect = svgEl.getBoundingClientRect();
-        const x = e.clientX - rect.left - MARGIN.left;
-        const innerW = Math.max(1, rect.width - MARGIN.left - MARGIN.right);
-        cursorX = (x >= 0 && x <= innerW) ? x : null;
-    });
-    chartG.addEventListener('mouseleave', () => {
-        cursorX = null;
-    });
 
     // Compute target Y range from visible points + latest value (computeTargetRange from live-line-chart.tsx)
     function computeTargetRange(visiblePts, val) {
@@ -597,25 +569,6 @@ function createBklitLiveLineChart(container) {
         }
         const area = `${d} L ${coords[n - 1].x.toFixed(2)},${baselineY.toFixed(2)} L ${coords[0].x.toFixed(2)},${baselineY.toFixed(2)} Z`;
         return { line: d, area };
-    }
-
-    // Binary search interpolation at timeSec (interpolateAtTime from live-line-chart.tsx)
-    function interpolateAtTime(pts, timeSec) {
-        if (!pts.length) return 0;
-        if (timeSec <= pts[0].time) return pts[0].value;
-        if (timeSec >= pts[pts.length - 1].time) return pts[pts.length - 1].value;
-        let lo = 0;
-        let hi = pts.length - 1;
-        while (hi - lo > 1) {
-            const mid = (lo + hi) >> 1;
-            if (pts[mid].time <= timeSec) lo = mid;
-            else hi = mid;
-        }
-        const p1 = pts[lo];
-        const p2 = pts[hi];
-        const dt = p2.time - p1.time;
-        if (dt <= 0) return p1.value;
-        return p1.value + ((timeSec - p1.time) / dt) * (p2.value - p1.value);
     }
 
     // Stream sample every 450ms so the chart advances smoothly even when idle
@@ -744,45 +697,13 @@ function createBklitLiveLineChart(container) {
         yAxisEl.innerHTML = yHtml;
         gridG.innerHTML   = gHtml;
 
-        // LiveXAxis & interactive crosshair scrubbing
-        const isHovering = cursorX !== null && cursorX >= 0 && cursorX <= innerW;
-        const crosshairScreenX = isHovering ? (cursorX + MARGIN.left) : null;
+        // LiveXAxis (steady labels, no hover animation)
         const stepMs = WINDOW_MS / (NUM_X_TICKS - 1);
-
         for (let i = 0; i < NUM_X_TICKS; i++) {
             const tMs = domainStartMs + i * stepMs;
             const xPx = xScale(tMs) + MARGIN.left;
-            let op = 1;
-            if (isHovering && crosshairScreenX !== null) {
-                const dist = Math.abs(xPx - crosshairScreenX);
-                if (dist < TICKER_HALF_W) op = 0;
-                else if (dist < TICKER_HALF_W + FADE_BUFFER) op = (dist - TICKER_HALF_W) / FADE_BUFFER;
-            }
             xTickNodes[i].wrap.style.left = `${xPx.toFixed(1)}px`;
-            xTickNodes[i].span.style.opacity = op.toFixed(2);
             xTickNodes[i].span.textContent = formatTime(tMs);
-        }
-
-        if (isHovering) {
-            const hoverTimeMs = domainStartMs + (cursorX / innerW) * WINDOW_MS;
-            const hoverVal = interpolateAtTime(renderPts, hoverTimeMs / 1000);
-            const hoverY = Math.min(innerH, Math.max(0, yScale(hoverVal)));
-
-            liveTipG.style.opacity = '0.25';
-            scrubG.style.opacity   = '1';
-            scrubLine.setAttribute('x1', cursorX.toFixed(1));
-            scrubLine.setAttribute('x2', cursorX.toFixed(1));
-            scrubLine.setAttribute('y2', String(innerH));
-            scrubDot.setAttribute('cx', cursorX.toFixed(1));
-            scrubDot.setAttribute('cy', hoverY.toFixed(1));
-
-            hoverPillEl.style.opacity = '1';
-            hoverPillEl.style.left    = `${(cursorX + MARGIN.left).toFixed(1)}px`;
-            hoverPillTxt.textContent  = `${formatTime(hoverTimeMs)} • ${hoverVal.toFixed(1)} req/s`;
-        } else {
-            liveTipG.style.opacity    = '1';
-            scrubG.style.opacity      = '0';
-            hoverPillEl.style.opacity = '0';
         }
 
         requestAnimationFrame(renderTick);
@@ -1118,17 +1039,9 @@ function showRT(data, resultId) {
     box.innerHTML = '<pre class="recon-pre">' + JSON.stringify(data, null, 2) + '</pre>';
 }
 
-// ── Aceternity UI Cursor-Tracking Spotlights ───────────────────────
+// ── Spotlights (Hover animation disabled) ──────────────────────────
 function initSpotlights() {
-    const cards = document.querySelectorAll('.glass-card, .stat-card, .spotlight-card');
-    cards.forEach(function(card) {
-        card.classList.add('spotlight-card');
-        card.addEventListener('mousemove', function(e) {
-            const rect = card.getBoundingClientRect();
-            card.style.setProperty('--mouse-x', (e.clientX - rect.left) + 'px');
-            card.style.setProperty('--mouse-y', (e.clientY - rect.top) + 'px');
-        });
-    });
+    // Hover spotlight animations removed per user preference
 }
 
 // ── Wire all buttons ───────────────────────────────────────────────
