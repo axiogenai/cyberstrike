@@ -9,8 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link rel="stylesheet" href="/static/style.css?v=20">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css?v=21">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -134,16 +133,15 @@
 
             <!-- ================================================================
                  1. COMMAND CENTER DASHBOARD
-                 (ThreeUI Spatial Scene + Magic UI Bento + Bklit UI + Aceternity)
                  ================================================================ -->
             <section id="dashboard-page" class="page active">
 
-                <!-- ThreeUI Spatial Hero Card -->
+                <!-- Hero Banner + Live Target Posture Matrix -->
                 <div class="glass-card spotlight-card threeui-hero">
                     <div class="threeui-hero-left">
                         <div class="bklit-eyebrow">
-                            <i data-lucide="orbit" class="lucide-xs"></i>
-                            <span>THREEUI SPATIAL TELEMETRY ENGINE</span>
+                            <i data-lucide="shield-check" class="lucide-xs"></i>
+                            <span>ENTERPRISE SECURITY COMMAND CENTER</span>
                         </div>
                         <h1 class="hero-title">Security Posture &amp; Live Verification</h1>
                         <p class="hero-desc">
@@ -161,15 +159,54 @@
                         </div>
                     </div>
 
-                    <div class="threeui-hero-right">
-                        <div class="threeui-stage" id="threeui-canvas-container" aria-label="3D Spatial Telemetry Node"></div>
-                        <div class="threeui-hud">
-                            <div class="hud-chip">
-                                <span class="hud-dot"></span>
-                                <span>WEBGL DPR CLAMPED [1, 1.8]</span>
+                    <!-- Interactive Live Target Posture & Quick-Audit HUD -->
+                    <div class="posture-hud" id="posture-hud-panel">
+                        <div class="phud-top">
+                            <div class="phud-input-wrap">
+                                <i data-lucide="globe" class="lucide-xs phud-ico"></i>
+                                <input type="text" id="hero-quick-target" class="phud-input" value="http://127.0.0.1:8083" placeholder="https://example.com">
                             </div>
-                            <div class="hud-chip">
-                                <span>MESH: GEODESIC ICOSAHEDRON</span>
+                            <button type="button" class="btn-primary phud-btn" id="hero-btn-quick-audit">
+                                <i data-lucide="scan-line" class="lucide-xs"></i>
+                                <span>Quick Audit</span>
+                            </button>
+                        </div>
+
+                        <div class="phud-grid">
+                            <div class="phud-cell">
+                                <div class="phud-cell-head">
+                                    <span class="phud-label">Header Score</span>
+                                    <i data-lucide="shield" class="lucide-xs phud-amber"></i>
+                                </div>
+                                <div class="phud-val" id="hud-sec-score">— / 100</div>
+                                <div class="phud-sub" id="hud-sec-sub">Click Quick Audit</div>
+                            </div>
+
+                            <div class="phud-cell">
+                                <div class="phud-cell-head">
+                                    <span class="phud-label">WAF / Edge</span>
+                                    <i data-lucide="layers" class="lucide-xs"></i>
+                                </div>
+                                <div class="phud-val" id="hud-waf-status">Unscanned</div>
+                                <div class="phud-sub" id="hud-waf-sub">Edge filter status</div>
+                            </div>
+
+                            <div class="phud-cell">
+                                <div class="phud-cell-head">
+                                    <span class="phud-label">Keep-Alive</span>
+                                    <i data-lucide="activity" class="lucide-xs"></i>
+                                </div>
+                                <div class="phud-val" id="hud-conn-posture">Standby</div>
+                                <div class="phud-sub" id="hud-conn-sub">Timeout posture</div>
+                            </div>
+
+                            <div class="phud-cell">
+                                <div class="phud-cell-head">
+                                    <span class="phud-label">Verified Vulns</span>
+                                    <i data-lucide="bug" class="lucide-xs"></i>
+                                </div>
+                                <div class="phud-val" id="hud-vuln-total">0</div>
+                                <div class="phud-sub">Active session findings</div>
                             </div>
                         </div>
                     </div>
@@ -902,7 +939,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=20"></script>
+    <script src="/static/app.js?v=21"></script>
 
 </body>
 </html>

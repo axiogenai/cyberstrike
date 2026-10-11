@@ -340,37 +340,62 @@ html[data-theme="light"] .spotlight-card::before {
 }
 .hero-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
 
-.threeui-hero-right {
-    position: relative;
-    height: 164px;
-    border-radius: var(--r2);
+/* ── Interactive Live Target Posture & Quick-Audit HUD ─────────── */
+.posture-hud {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 14px; border-radius: var(--r2);
     border: 1px solid var(--gb);
-    background:
-        radial-gradient(circle at 50% 50%, rgba(245, 158, 11, 0.07) 0%, transparent 70%),
-        var(--bg-surface);
-    overflow: hidden;
-    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-surface);
 }
-.threeui-stage {
-    width: 100%; height: 100%;
-    display: flex; align-items: center; justify-content: center;
-    cursor: grab;
+.phud-top {
+    display: flex; align-items: center; gap: 8px;
 }
-.threeui-stage:active { cursor: grabbing; }
-.threeui-hud {
-    position: absolute; left: 10px; right: 10px; bottom: 8px;
+.phud-input-wrap {
+    flex: 1; position: relative;
+    display: flex; align-items: center;
+}
+.phud-ico {
+    position: absolute; left: 10px; color: var(--t3); pointer-events: none;
+}
+.phud-input {
+    width: 100%; padding: 7px 10px 7px 30px;
+    border-radius: 7px; border: 1px solid var(--gb);
+    background: var(--g1); color: var(--t1);
+    font-family: var(--mono); font-size: 11.5px;
+    outline: none; transition: border-color var(--t);
+}
+.phud-input:focus { border-color: var(--primary); }
+.phud-btn {
+    padding: 7px 12px; font-size: 11.5px; border-radius: 7px;
+    white-space: nowrap;
+}
+.phud-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.phud-cell {
+    padding: 10px 12px; border-radius: 8px;
+    background: var(--g1); border: 1px solid var(--gb);
+    display: flex; flex-direction: column; gap: 2px;
+    transition: border-color var(--t);
+}
+.phud-cell:hover { border-color: var(--gbh); }
+.phud-cell-head {
     display: flex; align-items: center; justify-content: space-between;
-    pointer-events: none;
+    color: var(--t3);
 }
-.hud-chip {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 3px 8px; border-radius: 6px;
-    background: var(--bg-topbar);
-    border: 1px solid var(--gb);
-    font-family: var(--mono); font-size: 9.5px; font-weight: 600;
-    color: var(--t2); letter-spacing: 0.04em;
+.phud-label {
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.06em; color: var(--t3);
 }
-.hud-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+.phud-amber { color: var(--primary); }
+.phud-val {
+    font-family: var(--mono); font-size: 15px; font-weight: 700;
+    color: var(--t1); margin-top: 2px;
+}
+.phud-sub {
+    font-size: 10.5px; color: var(--t2);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 
 /* ── Bklit UI Pills & Badges ───────────────────────────────────── */
 .bklit-pill {

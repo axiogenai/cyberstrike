@@ -285,9 +285,11 @@ function updateVulnBadges() {
     const navV = el('nav-vuln-count');
     const topV = el('top-findings-count');
     const hdrV = el('findings-header-badge');
+    const hudV = el('hud-vuln-total');
     if (navV) navV.textContent = String(vulnCount);
     if (topV) topV.textContent = String(vulnCount);
     if (hdrV) hdrV.textContent = `${vulnCount} Finding${vulnCount === 1 ? '' : 's'}`;
+    if (hudV) hudV.textContent = String(vulnCount);
 }
 
 function addVuln(v) {
@@ -675,101 +677,88 @@ function showRT(data, resultId) {
     box.innerHTML = '<pre class="recon-pre">' + JSON.stringify(data, null, 2) + '</pre>';
 }
 
-// ── ThreeUI Multi-Layered 3D Spatial Telemetry Scene ───────────────
-function initThreeUINode() {
-    const stage = el('threeui-canvas-container');
-    if (!stage || typeof THREE === 'undefined') return;
+// ── Live Target Posture & Quick-Audit HUD ──────────────────────────
+async function runQuickPostureAudit(silent) {
+    const inp = el('hero-quick-target');
+    const btn = el('hero-btn-quick-audit');
+    const target = inp ? inp.value.trim() : 'http://127.0.0.1:8083';
+    if (!target || !BACKEND_HOST) return;
 
-    const getDims = () => ({
-        w: Math.max(stage.clientWidth  || 360, 200),
-        h: Math.max(stage.clientHeight || 160, 120)
-    });
+    const scoreEl = el('hud-sec-score');
+    const scoreSub = el('hud-sec-sub');
+    const wafEl   = el('hud-waf-status');
+    const wafSub  = el('hud-waf-sub');
+    const connEl  = el('hud-conn-posture');
+    const connSub = el('hud-conn-sub');
 
-    const { w, h } = getDims();
-    const scene  = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 100);
-    camera.position.z = 3.8;
+    if (btn) btn.disabled = true;
+    if (scoreEl) scoreEl.textContent = '...';
+    if (wafEl)   wafEl.textContent   = '...';
+    if (connEl)  connEl.textContent  = '...';
 
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8));
-    renderer.setSize(w, h);
-    stage.innerHTML = '';
-    stage.appendChild(renderer.domElement);
+    try {
+        const base = getBackendUrls().http;
+        const [hdrRes, wafRes] = await Promise.all([
+            fetch(`${base}/api/recon/headers`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target })
+            }).then(r => r.json()).catch(() => null),
+            fetch(`${base}/api/recon/waf`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target })
+            }).then(r => r.json()).catch(() => null)
+        ]);
 
-    const group = new THREE.Group();
-    scene.add(group);
+        if (hdrRes && !hdrRes.error && hdrRes.security_score != null) {
+            if (scoreEl) {
+                scoreEl.textContent = `${hdrRes.security_score}/100`;
+                scoreEl.style.color = hdrRes.security_score >= 70 ? 'var(--success)' : (hdrRes.security_score >= 40 ? 'var(--primary)' : 'var(--danger)');
+            }
+            if (scoreSub) {
+                scoreSub.textContent = `${hdrRes.missing_count || 0} missing headers (HTTP ${hdrRes.status || 200})`;
+            }
+            const cp = hdrRes.connection_posture || {};
+            if (connEl) {
+                connEl.textContent = cp.timeout_configured ? 'Bounded' : 'Unbounded';
+                connEl.style.color = cp.timeout_configured ? 'var(--success)' : 'var(--warning)';
+            }
+            if (connSub) {
+                connSub.textContent = `Conn: ${cp.connection_header || 'default'}`;
+            }
+        } else {
+            if (scoreEl) { scoreEl.textContent = 'Offline'; scoreEl.style.color = 'var(--t2)'; }
+            if (scoreSub) scoreSub.textContent = hdrRes?.error ? 'Target unreachable' : 'Check target URL';
+            if (connEl)  { connEl.textContent  = 'N/A'; connEl.style.color = 'var(--t2)'; }
+            if (connSub) connSub.textContent = 'No HTTP response';
+        }
 
-    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+        if (wafRes && !wafRes.error) {
+            const hasWaf = Boolean(wafRes.waf_detected);
+            const wafName = (wafRes.detected_wafs && wafRes.detected_wafs.length)
+                ? wafRes.detected_wafs.join(', ')
+                : (hasWaf ? 'Active Filter' : 'Unprotected');
+            if (wafEl) {
+                wafEl.textContent = wafName;
+                wafEl.style.color = hasWaf ? 'var(--success)' : 'var(--warning)';
+            }
+            if (wafSub) {
+                wafSub.textContent = hasWaf ? `Blocked probe (HTTP ${wafRes.attack_status})` : `Direct pass (HTTP ${wafRes.normal_status || 200})`;
+            }
+        } else {
+            if (wafEl)  { wafEl.textContent = 'Unknown'; wafEl.style.color = 'var(--t2)'; }
+            if (wafSub) wafSub.textContent = 'Probe skipped';
+        }
 
-    // 1. Outer Geodesic Wireframe Sphere (Slate)
-    const outerGeom = new THREE.IcosahedronGeometry(1.22, 1);
-    const outerMat  = new THREE.MeshBasicMaterial({
-        color: isLight ? 0x475569 : 0x94a3b8,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.48
-    });
-    const outerMesh = new THREE.Mesh(outerGeom, outerMat);
-    group.add(outerMesh);
-
-    // 2. Inner Counter-Rotating Octahedron Core (Warm Amber)
-    const coreGeom = new THREE.OctahedronGeometry(0.68, 0);
-    const coreMat  = new THREE.MeshBasicMaterial({
-        color: isLight ? 0xd97706 : 0xf59e0b,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.85
-    });
-    const coreMesh = new THREE.Mesh(coreGeom, coreMat);
-    group.add(coreMesh);
-
-    // 3. Orbital Telemetry Ring
-    const ringGeom = new THREE.TorusGeometry(1.55, 0.012, 8, 64);
-    const ringMat  = new THREE.MeshBasicMaterial({
-        color: isLight ? 0x64748b : 0x52525b,
-        transparent: true,
-        opacity: 0.55
-    });
-    const ringMesh = new THREE.Mesh(ringGeom, ringMat);
-    ringMesh.rotation.x = Math.PI / 2.6;
-    ringMesh.rotation.y = Math.PI / 8;
-    group.add(ringMesh);
-
-    let targetRotX = 0;
-    let targetRotY = 0;
-    stage.addEventListener('mousemove', function(e) {
-        const rect = stage.getBoundingClientRect();
-        const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-        const ny = ((e.clientY - rect.top) / rect.height) * 2 - 1;
-        targetRotY = nx * 0.75;
-        targetRotX = ny * 0.45;
-    });
-
-    window.addEventListener('resize', function() {
-        const d = getDims();
-        camera.aspect = d.w / d.h;
-        camera.updateProjectionMatrix();
-        renderer.setSize(d.w, d.h);
-    });
-
-    function animate() {
-        requestAnimationFrame(animate);
-        const curLight = document.documentElement.getAttribute('data-theme') === 'light';
-        outerMat.color.setHex(curLight ? 0x475569 : 0x94a3b8);
-        coreMat.color.setHex(curLight ? 0xd97706 : 0xf59e0b);
-
-        outerMesh.rotation.y += 0.0035;
-        outerMesh.rotation.x += 0.0018;
-        coreMesh.rotation.y  -= 0.0065;
-        coreMesh.rotation.z  += 0.0030;
-        ringMesh.rotation.z  += 0.0025;
-
-        group.rotation.y += (targetRotY - group.rotation.y) * 0.05;
-        group.rotation.x += (targetRotX - group.rotation.x) * 0.05;
-
-        renderer.render(scene, camera);
+        if (!silent) {
+            addLog(`[Quick Audit] Posture inspected for ${target} — Score: ${hdrRes?.security_score ?? 'N/A'}/100`, 'info');
+        }
+    } catch (e) {
+        if (!silent) addLog(`[Quick Audit] Failed: ${e.message}`, 'error');
+    } finally {
+        if (btn) btn.disabled = false;
     }
-    animate();
 }
 
 // ── Aceternity UI Cursor-Tracking Spotlights ───────────────────────
@@ -794,6 +783,21 @@ function wireButtons() {
             var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
             applyTheme(cur === 'light' ? 'dark' : 'light');
         };
+    }
+
+    // Quick Posture Audit HUD button & Enter key
+    var quickBtn = el('hero-btn-quick-audit');
+    var quickInp = el('hero-quick-target');
+    if (quickBtn) {
+        quickBtn.onclick = function() { runQuickPostureAudit(false); };
+    }
+    if (quickInp) {
+        quickInp.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                runQuickPostureAudit(false);
+            }
+        });
     }
 
     // Copy Recon JSON button
@@ -839,6 +843,7 @@ function wireButtons() {
             if (ws) ws.close();
             connectWS();
             fetchStatus();
+            runQuickPostureAudit(true);
         };
     }
 
@@ -973,7 +978,6 @@ async function boot() {
     initCharts();
     var savedTheme = localStorage.getItem('cyberstrike_theme') || 'dark';
     applyTheme(savedTheme);
-    initThreeUINode();
     initSpotlights();
     wireButtons();
 
@@ -990,6 +994,7 @@ async function boot() {
         addLog('Backend: ' + BACKEND_HOST, 'info');
         connectWS();
         fetchStatus();
+        runQuickPostureAudit(true);
     } else {
         addLog('No backend configured - go to Settings to set one.', 'warning');
     }
