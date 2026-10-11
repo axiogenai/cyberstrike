@@ -37,9 +37,9 @@
         <div class="topbar-center">
             <div class="telemetry-strip">
                 <div class="tstrip-item">
-                    <i data-lucide="zap" class="lucide-xs tstrip-amber"></i>
-                    <span class="tstrip-label">Peak Rate</span>
-                    <strong class="tstrip-val" id="top-avg-latency">0 req/s</strong>
+                    <i data-lucide="check-circle-2" class="lucide-xs tstrip-amber"></i>
+                    <span class="tstrip-label">Delivery Rate</span>
+                    <strong class="tstrip-val" id="top-avg-latency">100%</strong>
                 </div>
                 <div class="tstrip-divider"></div>
                 <div class="tstrip-item">
@@ -174,12 +174,12 @@
                     <div class="glass-card spotlight-card">
                         <div class="card-head">
                             <div class="card-head-title">
-                                <i data-lucide="trending-up" class="lucide-xs"></i>
-                                <span>Attack Velocity &amp; Threat Detections</span>
+                                <i data-lucide="shield-alert" class="lucide-xs"></i>
+                                <span>Vulnerability Severity Breakdown</span>
                             </div>
                             <div class="card-head-meta">
-                                <span class="bklit-badge" id="avg-latency-badge">Rate: 0 req/s</span>
-                                <span class="bklit-badge" id="peak-latency-badge">Peak: 0 req/s</span>
+                                <span class="bklit-badge danger" id="avg-latency-badge">Critical: 0</span>
+                                <span class="bklit-badge" id="peak-latency-badge">High: 0</span>
                             </div>
                         </div>
                         <div class="card-body">
@@ -191,10 +191,10 @@
                         <div class="card-head">
                             <div class="card-head-title">
                                 <i data-lucide="bar-chart-3" class="lucide-xs"></i>
-                                <span>Traffic &amp; Severity Breakdown</span>
+                                <span>Throughput &amp; Block Ratio</span>
                             </div>
                             <div class="card-head-meta">
-                                <span class="bklit-badge">HTTP + Findings</span>
+                                <span class="bklit-badge">2xx vs 4xx/5xx</span>
                             </div>
                         </div>
                         <div class="card-body">
@@ -889,7 +889,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=26"></script>
+    <script src="/static/app.js?v=27"></script>
 
 </body>
 </html>

@@ -154,45 +154,9 @@ function addLog(msg, level = 'info') {
 
 // ── Metrics update ─────────────────────────────────────────────────
 function updateStats(data) {
-    const prevTotal = metricsData.total_requests;
     if (data.total_requests      != null) metricsData.total_requests      = data.total_requests;
     if (data.successful_requests != null) metricsData.successful_requests = data.successful_requests;
     if (data.failed_requests     != null) metricsData.failed_requests     = data.failed_requests;
-
-    const now = performance.now();
-    const delta = Math.max(0, metricsData.total_requests - prevTotal);
-
-    if (data.response_time != null || delta > 0) {
-        if (!hasLiveVelocity) {
-            metricsData.rps_history = [0];
-            metricsData.findings_history = [0];
-            hasLiveVelocity = true;
-        }
-        const countToAdd = Math.max(1, Math.min(delta || 1, 50));
-        for (let i = 0; i < countToAdd; i++) {
-            recentReqTimestamps.push(now);
-        }
-    }
-
-    recentReqTimestamps = recentReqTimestamps.filter(t => now - t <= 1000);
-    const currentRps = recentReqTimestamps.length;
-    if (currentRps > peakRps) peakRps = currentRps;
-
-    if (data.response_time != null || delta > 0) {
-        if (now - lastVelocitySampleTime >= 140 || metricsData.rps_history.length <= 1) {
-            metricsData.rps_history.push(currentRps);
-            metricsData.findings_history.push(vulnCount);
-            if (metricsData.rps_history.length > 40) {
-                metricsData.rps_history.shift();
-                metricsData.findings_history.shift();
-            }
-            lastVelocitySampleTime = now;
-        } else {
-            const lastIdx = metricsData.rps_history.length - 1;
-            metricsData.rps_history[lastIdx] = Math.max(metricsData.rps_history[lastIdx], currentRps);
-            metricsData.findings_history[lastIdx] = vulnCount;
-        }
-    }
 
     const tr = el('total-requests');
     const sr = el('successful-requests');
@@ -215,13 +179,13 @@ function updateStats(data) {
     if (bSucc)  bSucc.style.width  = `${sPct}%`;
     if (bFail)  bFail.style.width  = `${fPct}%`;
 
-    // Update Attack Velocity (req/s) badges
+    // Update Severity & Delivery badges
     const avgB  = el('avg-latency-badge');
     const peakB = el('peak-latency-badge');
     const topL  = el('top-avg-latency');
-    if (avgB)  avgB.textContent  = `Rate: ${currentRps} req/s`;
-    if (peakB) peakB.textContent = `Peak: ${peakRps} req/s`;
-    if (topL)  topL.textContent  = `${peakRps} req/s`;
+    if (avgB)  avgB.textContent  = `Critical: ${sevCounts.Critical}`;
+    if (peakB) peakB.textContent = `High: ${sevCounts.High}`;
+    if (topL)  topL.textContent  = `${sPct}%`;
 
     updateCharts();
 }
@@ -254,14 +218,12 @@ function applyTheme(theme) {
 
     const gridColor  = isLight ? 'rgba(15, 23, 42, 0.07)' : 'rgba(255, 255, 255, 0.05)';
     const tickColor  = isLight ? '#64748b' : '#71717a';
-    const lineBorder = isLight ? '#d97706' : '#f59e0b';
 
     if (window.responseTimeChart) {
         const rt = window.responseTimeChart;
         rt.options.scales.y.grid.color  = gridColor;
         rt.options.scales.y.ticks.color = tickColor;
         rt.options.scales.x.ticks.color = tickColor;
-        rt.data.datasets[0].borderColor = lineBorder;
         rt.update('none');
     }
     if (window.requestRateChart) {
@@ -303,6 +265,11 @@ function updateVulnBadges() {
     if (topV) topV.textContent = String(vulnCount);
     if (hdrV) hdrV.textContent = `${vulnCount} Finding${vulnCount === 1 ? '' : 's'}`;
     if (hudV) hudV.textContent = String(vulnCount);
+
+    const avgB  = el('avg-latency-badge');
+    const peakB = el('peak-latency-badge');
+    if (avgB)  avgB.textContent  = `Critical: ${sevCounts.Critical}`;
+    if (peakB) peakB.textContent = `High: ${sevCounts.High}`;
 }
 
 function addVuln(v) {
@@ -318,9 +285,6 @@ function addVuln(v) {
     else if (/low/i.test(sev)) sevCounts.Low += 1;
     else sevCounts.Medium += 1;
 
-    if (metricsData.findings_history.length > 0) {
-        metricsData.findings_history[metricsData.findings_history.length - 1] = vulnCount;
-    }
     updateVulnBadges();
     updateCharts();
 
@@ -398,15 +362,6 @@ function initCharts() {
     const rrCanvas = el('request-rate-chart');
     if (!rtCanvas || !rrCanvas || typeof Chart === 'undefined') return;
 
-    const rtCtx = rtCanvas.getContext('2d');
-    const amberGrad = rtCtx.createLinearGradient(0, 0, 0, 200);
-    amberGrad.addColorStop(0, 'rgba(245, 158, 11, 0.30)');
-    amberGrad.addColorStop(1, 'rgba(245, 158, 11, 0.00)');
-
-    const redGrad = rtCtx.createLinearGradient(0, 0, 0, 200);
-    redGrad.addColorStop(0, 'rgba(248, 113, 113, 0.22)');
-    redGrad.addColorStop(1, 'rgba(248, 113, 113, 0.00)');
-
     const baseOpts = {
         responsive: true,
         maintainAspectRatio: false,
@@ -414,28 +369,16 @@ function initCharts() {
         scales: {
             y: {
                 beginAtZero: true,
-                suggestedMax: 10,
                 grid:  { color: 'rgba(255, 255, 255, 0.05)', borderDash: [4, 4] },
                 ticks: { color: '#71717a', font: { family: 'JetBrains Mono', size: 10 }, precision: 0 }
             },
             x: {
                 grid:  { display: false },
-                ticks: { color: '#71717a', font: { family: 'JetBrains Mono', size: 9 } }
+                ticks: { color: '#71717a', font: { family: 'JetBrains Mono', size: 10 } }
             }
         },
         plugins: {
-            legend: {
-                display: true,
-                position: 'top',
-                align: 'end',
-                labels: {
-                    color: '#a1a1aa',
-                    boxWidth: 10,
-                    boxHeight: 10,
-                    usePointStyle: true,
-                    font: { family: 'JetBrains Mono', size: 10 }
-                }
-            },
+            legend: { display: false },
             tooltip: {
                 backgroundColor: 'rgba(18, 18, 22, 0.94)',
                 titleColor: '#f4f4f5',
@@ -449,91 +392,65 @@ function initCharts() {
         }
     };
 
-    window.responseTimeChart = new Chart(rtCtx, {
-        type: 'line',
+    window.responseTimeChart = new Chart(rtCanvas.getContext('2d'), {
+        type: 'bar',
         data: {
-            labels: metricsData.rps_history.map((_, i) => `T-${metricsData.rps_history.length - i}`),
-            datasets: [
-                {
-                    label: 'Throughput (req/s)',
-                    data: metricsData.rps_history,
-                    backgroundColor: amberGrad,
-                    borderColor: '#f59e0b',
-                    borderWidth: 2,
-                    tension: 0.38,
-                    fill: true,
-                    pointRadius: 2.5,
-                    pointBackgroundColor: '#f59e0b'
-                },
-                {
-                    label: 'Findings Detected',
-                    data: metricsData.findings_history,
-                    backgroundColor: redGrad,
-                    borderColor: '#f87171',
-                    borderWidth: 2,
-                    tension: 0.35,
-                    fill: true,
-                    pointRadius: 2.5,
-                    pointBackgroundColor: '#f87171'
-                }
-            ]
+            labels: ['Critical', 'High', 'Medium', 'Low / Info'],
+            datasets: [{
+                label: 'Findings',
+                data: [0, 0, 0, 0],
+                backgroundColor: [
+                    'rgba(220, 38, 38, 0.28)',
+                    'rgba(245, 158, 11, 0.28)',
+                    'rgba(148, 163, 184, 0.24)',
+                    'rgba(113, 113, 122, 0.22)'
+                ],
+                borderColor: [
+                    '#dc2626',
+                    '#f59e0b',
+                    '#94a3b8',
+                    '#71717a'
+                ],
+                borderWidth: 1.5,
+                borderRadius: 6,
+                barThickness: 38
+            }]
         },
         options: JSON.parse(JSON.stringify(baseOpts))
     });
-    window.responseTimeChart.data.datasets[0].backgroundColor = amberGrad;
-    window.responseTimeChart.data.datasets[1].backgroundColor = redGrad;
-    window.responseTimeChart.update('none');
-
-    const barOpts = JSON.parse(JSON.stringify(baseOpts));
-    barOpts.plugins.legend.display = false;
 
     window.requestRateChart = new Chart(rrCanvas.getContext('2d'), {
         type: 'bar',
         data: {
-            labels: ['2xx/3xx OK', 'Blocked/Err', 'Critical', 'High', 'Med/Low'],
+            labels: ['Successful (2xx/3xx)', 'Blocked / Errors'],
             datasets: [{
-                label: 'Count',
-                data: [0, 0, 0, 0, 0],
-                backgroundColor: [
-                    'rgba(148, 163, 184, 0.25)',
-                    'rgba(248, 113, 113, 0.22)',
-                    'rgba(220, 38, 38, 0.30)',
-                    'rgba(245, 158, 11, 0.28)',
-                    'rgba(161, 161, 170, 0.22)'
-                ],
-                borderColor: [
-                    '#94a3b8',
-                    '#f87171',
-                    '#dc2626',
-                    '#f59e0b',
-                    '#a1a1aa'
-                ],
+                label: 'Requests',
+                data: [0, 0],
+                backgroundColor: ['rgba(148, 163, 184, 0.25)', 'rgba(248, 113, 113, 0.22)'],
+                borderColor:     ['#94a3b8', '#f87171'],
                 borderWidth: 1.5,
                 borderRadius: 6,
-                barThickness: 32
+                barThickness: 44
             }]
         },
-        options: barOpts
+        options: JSON.parse(JSON.stringify(baseOpts))
     });
 }
 
 function updateCharts() {
     if (window.responseTimeChart) {
         const rt = window.responseTimeChart;
-        rt.data.labels           = metricsData.rps_history.map((_, i) => `#${i + 1}`);
-        rt.data.datasets[0].data = metricsData.rps_history;
-        rt.data.datasets[1].data = metricsData.findings_history;
+        rt.data.datasets[0].data = [
+            sevCounts.Critical,
+            sevCounts.High,
+            sevCounts.Medium,
+            sevCounts.Low
+        ];
         rt.update('none');
     }
     if (window.requestRateChart) {
         const rr = window.requestRateChart;
-        rr.data.datasets[0].data = [
-            metricsData.successful_requests,
-            metricsData.failed_requests,
-            sevCounts.Critical,
-            sevCounts.High,
-            sevCounts.Medium + sevCounts.Low
-        ];
+        rr.data.datasets[0].data = [metricsData.successful_requests, metricsData.failed_requests];
         rr.update('none');
     }
 }
