@@ -38,8 +38,8 @@
             <div class="telemetry-strip">
                 <div class="tstrip-item">
                     <i data-lucide="zap" class="lucide-xs tstrip-amber"></i>
-                    <span class="tstrip-label">Avg Latency</span>
-                    <strong class="tstrip-val" id="top-avg-latency">0.0 ms</strong>
+                    <span class="tstrip-label">Peak Rate</span>
+                    <strong class="tstrip-val" id="top-avg-latency">0 req/s</strong>
                 </div>
                 <div class="tstrip-divider"></div>
                 <div class="tstrip-item">
@@ -79,7 +79,7 @@
                 <a class="slink" href="#" data-page="attacks">
                     <i data-lucide="crosshair" class="lucide-nav"></i>
                     <span>Test Modules</span>
-                    <span class="nav-pill">16</span>
+                    <span class="nav-pill">26</span>
                 </a>
                 <a class="slink" href="#" data-page="redteam">
                     <i data-lucide="terminal-square" class="lucide-nav"></i>
@@ -92,7 +92,7 @@
                 <a class="slink" href="#" data-page="recon">
                     <i data-lucide="radar" class="lucide-nav"></i>
                     <span>Recon &amp; OSINT</span>
-                    <span class="nav-pill">15</span>
+                    <span class="nav-pill">18</span>
                 </a>
                 <a class="slink" href="#" data-page="vulnerabilities">
                     <i data-lucide="bug" class="lucide-nav"></i>
@@ -174,12 +174,12 @@
                     <div class="glass-card spotlight-card">
                         <div class="card-head">
                             <div class="card-head-title">
-                                <i data-lucide="activity" class="lucide-xs"></i>
-                                <span>Response Time Distribution</span>
+                                <i data-lucide="trending-up" class="lucide-xs"></i>
+                                <span>Attack Velocity &amp; Threat Detections</span>
                             </div>
                             <div class="card-head-meta">
-                                <span class="bklit-badge" id="avg-latency-badge">Avg: 0.0 ms</span>
-                                <span class="bklit-badge" id="peak-latency-badge">Peak: 0.0 ms</span>
+                                <span class="bklit-badge" id="avg-latency-badge">Rate: 0 req/s</span>
+                                <span class="bklit-badge" id="peak-latency-badge">Peak: 0 req/s</span>
                             </div>
                         </div>
                         <div class="card-body">
@@ -191,10 +191,10 @@
                         <div class="card-head">
                             <div class="card-head-title">
                                 <i data-lucide="bar-chart-3" class="lucide-xs"></i>
-                                <span>Throughput &amp; Block Ratio</span>
+                                <span>Traffic &amp; Severity Breakdown</span>
                             </div>
                             <div class="card-head-meta">
-                                <span class="bklit-badge">2xx vs 4xx/5xx</span>
+                                <span class="bklit-badge">HTTP + Findings</span>
                             </div>
                         </div>
                         <div class="card-body">
@@ -889,7 +889,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=25"></script>
+    <script src="/static/app.js?v=26"></script>
 
 </body>
 </html>

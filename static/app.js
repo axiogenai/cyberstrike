@@ -11,13 +11,18 @@ let ws = null;
 let currentAttackId = null;
 let vulnCount = 0;
 let historyCount = 0;
-let hasLiveLatency = false;
+let hasLiveVelocity = false;
+let recentReqTimestamps = [];
+let lastVelocitySampleTime = 0;
+let peakRps = 0;
+let sevCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
 
 let metricsData = {
     total_requests: 0,
     successful_requests: 0,
     failed_requests: 0,
-    response_times: [11.8, 13.4, 12.1, 14.9, 13.2, 11.5, 15.6, 13.8, 12.4, 14.1, 12.0, 12.9]
+    rps_history: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    findings_history: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 };
 
 // ── Helper: get backend URLs ───────────────────────────────────────
@@ -149,17 +154,44 @@ function addLog(msg, level = 'info') {
 
 // ── Metrics update ─────────────────────────────────────────────────
 function updateStats(data) {
+    const prevTotal = metricsData.total_requests;
     if (data.total_requests      != null) metricsData.total_requests      = data.total_requests;
     if (data.successful_requests != null) metricsData.successful_requests = data.successful_requests;
     if (data.failed_requests     != null) metricsData.failed_requests     = data.failed_requests;
 
-    if (data.response_time != null) {
-        if (!hasLiveLatency) {
-            metricsData.response_times = [];
-            hasLiveLatency = true;
+    const now = performance.now();
+    const delta = Math.max(0, metricsData.total_requests - prevTotal);
+
+    if (data.response_time != null || delta > 0) {
+        if (!hasLiveVelocity) {
+            metricsData.rps_history = [0];
+            metricsData.findings_history = [0];
+            hasLiveVelocity = true;
         }
-        metricsData.response_times.push(Number((data.response_time * 1000).toFixed(2)));
-        if (metricsData.response_times.length > 60) metricsData.response_times.shift();
+        const countToAdd = Math.max(1, Math.min(delta || 1, 50));
+        for (let i = 0; i < countToAdd; i++) {
+            recentReqTimestamps.push(now);
+        }
+    }
+
+    recentReqTimestamps = recentReqTimestamps.filter(t => now - t <= 1000);
+    const currentRps = recentReqTimestamps.length;
+    if (currentRps > peakRps) peakRps = currentRps;
+
+    if (data.response_time != null || delta > 0) {
+        if (now - lastVelocitySampleTime >= 140 || metricsData.rps_history.length <= 1) {
+            metricsData.rps_history.push(currentRps);
+            metricsData.findings_history.push(vulnCount);
+            if (metricsData.rps_history.length > 40) {
+                metricsData.rps_history.shift();
+                metricsData.findings_history.shift();
+            }
+            lastVelocitySampleTime = now;
+        } else {
+            const lastIdx = metricsData.rps_history.length - 1;
+            metricsData.rps_history[lastIdx] = Math.max(metricsData.rps_history[lastIdx], currentRps);
+            metricsData.findings_history[lastIdx] = vulnCount;
+        }
     }
 
     const tr = el('total-requests');
@@ -183,18 +215,13 @@ function updateStats(data) {
     if (bSucc)  bSucc.style.width  = `${sPct}%`;
     if (bFail)  bFail.style.width  = `${fPct}%`;
 
-    // Update latency badges
-    if (metricsData.response_times.length > 0) {
-        const sum  = metricsData.response_times.reduce((a, b) => a + b, 0);
-        const avg  = (sum / metricsData.response_times.length).toFixed(1);
-        const peak = Math.max(...metricsData.response_times).toFixed(1);
-        const avgB  = el('avg-latency-badge');
-        const peakB = el('peak-latency-badge');
-        const topL  = el('top-avg-latency');
-        if (avgB)  avgB.textContent  = `Avg: ${avg} ms`;
-        if (peakB) peakB.textContent = `Peak: ${peak} ms`;
-        if (topL)  topL.textContent  = `${avg} ms`;
-    }
+    // Update Attack Velocity (req/s) badges
+    const avgB  = el('avg-latency-badge');
+    const peakB = el('peak-latency-badge');
+    const topL  = el('top-avg-latency');
+    if (avgB)  avgB.textContent  = `Rate: ${currentRps} req/s`;
+    if (peakB) peakB.textContent = `Peak: ${peakRps} req/s`;
+    if (topL)  topL.textContent  = `${peakRps} req/s`;
 
     updateCharts();
 }
@@ -285,7 +312,17 @@ function addVuln(v) {
     if (empty) empty.remove();
 
     vulnCount += 1;
+    const sev = String(v.severity || 'Medium');
+    if (/critical/i.test(sev)) sevCounts.Critical += 1;
+    else if (/high/i.test(sev)) sevCounts.High += 1;
+    else if (/low/i.test(sev)) sevCounts.Low += 1;
+    else sevCounts.Medium += 1;
+
+    if (metricsData.findings_history.length > 0) {
+        metricsData.findings_history[metricsData.findings_history.length - 1] = vulnCount;
+    }
     updateVulnBadges();
+    updateCharts();
 
     const d = document.createElement('div');
     d.className = 'vuln-item glass-card spotlight-card';
@@ -363,18 +400,23 @@ function initCharts() {
 
     const rtCtx = rtCanvas.getContext('2d');
     const amberGrad = rtCtx.createLinearGradient(0, 0, 0, 200);
-    amberGrad.addColorStop(0, 'rgba(245, 158, 11, 0.28)');
+    amberGrad.addColorStop(0, 'rgba(245, 158, 11, 0.30)');
     amberGrad.addColorStop(1, 'rgba(245, 158, 11, 0.00)');
+
+    const redGrad = rtCtx.createLinearGradient(0, 0, 0, 200);
+    redGrad.addColorStop(0, 'rgba(248, 113, 113, 0.22)');
+    redGrad.addColorStop(1, 'rgba(248, 113, 113, 0.00)');
 
     const baseOpts = {
         responsive: true,
         maintainAspectRatio: false,
-        animation: { duration: 260 },
+        animation: { duration: 240 },
         scales: {
             y: {
                 beginAtZero: true,
+                suggestedMax: 10,
                 grid:  { color: 'rgba(255, 255, 255, 0.05)', borderDash: [4, 4] },
-                ticks: { color: '#71717a', font: { family: 'JetBrains Mono', size: 10 } }
+                ticks: { color: '#71717a', font: { family: 'JetBrains Mono', size: 10 }, precision: 0 }
             },
             x: {
                 grid:  { display: false },
@@ -382,7 +424,18 @@ function initCharts() {
             }
         },
         plugins: {
-            legend: { display: false },
+            legend: {
+                display: true,
+                position: 'top',
+                align: 'end',
+                labels: {
+                    color: '#a1a1aa',
+                    boxWidth: 10,
+                    boxHeight: 10,
+                    usePointStyle: true,
+                    font: { family: 'JetBrains Mono', size: 10 }
+                }
+            },
             tooltip: {
                 backgroundColor: 'rgba(18, 18, 22, 0.94)',
                 titleColor: '#f4f4f5',
@@ -399,53 +452,88 @@ function initCharts() {
     window.responseTimeChart = new Chart(rtCtx, {
         type: 'line',
         data: {
-            labels: metricsData.response_times.map((_, i) => `T-${metricsData.response_times.length - i}`),
-            datasets: [{
-                label: 'Latency (ms)',
-                data: metricsData.response_times,
-                backgroundColor: amberGrad,
-                borderColor: '#f59e0b',
-                borderWidth: 2,
-                tension: 0.42,
-                fill: true,
-                pointRadius: 2.5,
-                pointBackgroundColor: '#f59e0b'
-            }]
+            labels: metricsData.rps_history.map((_, i) => `T-${metricsData.rps_history.length - i}`),
+            datasets: [
+                {
+                    label: 'Throughput (req/s)',
+                    data: metricsData.rps_history,
+                    backgroundColor: amberGrad,
+                    borderColor: '#f59e0b',
+                    borderWidth: 2,
+                    tension: 0.38,
+                    fill: true,
+                    pointRadius: 2.5,
+                    pointBackgroundColor: '#f59e0b'
+                },
+                {
+                    label: 'Findings Detected',
+                    data: metricsData.findings_history,
+                    backgroundColor: redGrad,
+                    borderColor: '#f87171',
+                    borderWidth: 2,
+                    tension: 0.35,
+                    fill: true,
+                    pointRadius: 2.5,
+                    pointBackgroundColor: '#f87171'
+                }
+            ]
         },
         options: JSON.parse(JSON.stringify(baseOpts))
     });
-    // Re-apply gradient after clone
     window.responseTimeChart.data.datasets[0].backgroundColor = amberGrad;
+    window.responseTimeChart.data.datasets[1].backgroundColor = redGrad;
     window.responseTimeChart.update('none');
+
+    const barOpts = JSON.parse(JSON.stringify(baseOpts));
+    barOpts.plugins.legend.display = false;
 
     window.requestRateChart = new Chart(rrCanvas.getContext('2d'), {
         type: 'bar',
         data: {
-            labels: ['Successful (2xx/3xx)', 'Blocked / Errors'],
+            labels: ['2xx/3xx OK', 'Blocked/Err', 'Critical', 'High', 'Med/Low'],
             datasets: [{
-                label: 'Requests',
-                data: [0, 0],
-                backgroundColor: ['rgba(74, 222, 128, 0.22)', 'rgba(248, 113, 113, 0.22)'],
-                borderColor:     ['#4ade80', '#f87171'],
+                label: 'Count',
+                data: [0, 0, 0, 0, 0],
+                backgroundColor: [
+                    'rgba(148, 163, 184, 0.25)',
+                    'rgba(248, 113, 113, 0.22)',
+                    'rgba(220, 38, 38, 0.30)',
+                    'rgba(245, 158, 11, 0.28)',
+                    'rgba(161, 161, 170, 0.22)'
+                ],
+                borderColor: [
+                    '#94a3b8',
+                    '#f87171',
+                    '#dc2626',
+                    '#f59e0b',
+                    '#a1a1aa'
+                ],
                 borderWidth: 1.5,
                 borderRadius: 6,
-                barThickness: 44
+                barThickness: 32
             }]
         },
-        options: JSON.parse(JSON.stringify(baseOpts))
+        options: barOpts
     });
 }
 
 function updateCharts() {
     if (window.responseTimeChart) {
         const rt = window.responseTimeChart;
-        rt.data.labels           = metricsData.response_times.map((_, i) => `#${i + 1}`);
-        rt.data.datasets[0].data = metricsData.response_times;
+        rt.data.labels           = metricsData.rps_history.map((_, i) => `#${i + 1}`);
+        rt.data.datasets[0].data = metricsData.rps_history;
+        rt.data.datasets[1].data = metricsData.findings_history;
         rt.update('none');
     }
     if (window.requestRateChart) {
         const rr = window.requestRateChart;
-        rr.data.datasets[0].data = [metricsData.successful_requests, metricsData.failed_requests];
+        rr.data.datasets[0].data = [
+            metricsData.successful_requests,
+            metricsData.failed_requests,
+            sevCounts.Critical,
+            sevCounts.High,
+            sevCounts.Medium + sevCounts.Low
+        ];
         rr.update('none');
     }
 }
@@ -494,18 +582,19 @@ async function fetchStatus() {
         const data = await res.json();
 
         handleAttackStatus({ running: data.attacks_running, attack_type: data.current_attacks?.[0] });
-        updateStats({
-            total_requests:      data.stats?.total_requests      || 0,
-            successful_requests: data.stats?.successful_requests || 0,
-            failed_requests:     data.stats?.failed_requests     || 0
-        });
 
         if (data.vulnerabilities && data.vulnerabilities.length) {
             const vc = el('vulnerabilities-container');
             if (vc) vc.innerHTML = '';
             vulnCount = 0;
+            sevCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
             data.vulnerabilities.forEach(addVuln);
         }
+        updateStats({
+            total_requests:      data.stats?.total_requests      || 0,
+            successful_requests: data.stats?.successful_requests || 0,
+            failed_requests:     data.stats?.failed_requests     || 0
+        });
         if (data.history && data.history.length) {
             const hc = el('attack-history-container');
             if (hc) hc.innerHTML = '';
@@ -580,9 +669,13 @@ async function resetAll() {
     if (!confirm('Reset all stats, logs and findings?')) return;
     try {
         if (BACKEND_HOST) await fetch(`${getBackendUrls().http}/api/logs/clear`, { method: 'POST' });
-        hasLiveLatency = false;
+        hasLiveVelocity = false;
+        recentReqTimestamps = [];
+        lastVelocitySampleTime = 0;
+        peakRps = 0;
         vulnCount = 0;
         historyCount = 0;
+        sevCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
         updateVulnBadges();
         const navH = el('nav-history-count');
         if (navH) navH.textContent = '0';
@@ -591,7 +684,8 @@ async function resetAll() {
             total_requests: 0,
             successful_requests: 0,
             failed_requests: 0,
-            response_times: [11.8, 13.4, 12.1, 14.9, 13.2, 11.5, 15.6, 13.8, 12.4, 14.1, 12.0, 12.9]
+            rps_history: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            findings_history: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         };
         updateStats(metricsData);
 
