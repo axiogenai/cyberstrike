@@ -87,8 +87,8 @@ function initAttackSelector() {
             if (bruteBox) bruteBox.style.display = t === 'brute' ? 'block' : 'none';
             if (portBox)  portBox.style.display  = t === 'port'  ? 'block' : 'none';
 
-            const showBoth     = ['ddos', 'slowloris', 'brute', 'ip_stress'].includes(t);
-            const hideDuration = ['sql', 'xss', 'stored_xss', 'csrf', 'idor', 'redirect', 'header_inj', 'cmd', 'ssrf', 'xxe', 'traversal', 'port', 'ssti', 'nosql', 'jwt_audit', 'graphql_audit', 'cors_audit', 'host_header'].includes(t);
+            const showBoth     = ['ddos', 'cache_bust', 'heavy_post', 'ws_flood', 'api_flood', 'slowloris', 'brute', 'ip_stress', 'ssti', 'nosql', 'jwt_audit', 'graphql_audit', 'cors_audit', 'host_header'].includes(t);
+            const hideDuration = ['sql', 'xss', 'stored_xss', 'csrf', 'idor', 'redirect', 'header_inj', 'cmd', 'ssrf', 'xxe', 'traversal', 'port'].includes(t);
 
             if (intGrp)  intGrp.style.display  = showBoth ? 'block' : 'none';
             if (thrdGrp) thrdGrp.style.display = showBoth ? 'block' : 'none';
