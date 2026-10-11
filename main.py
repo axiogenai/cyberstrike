@@ -82,7 +82,8 @@ metrics_lock = metrics.lock
 async def record_request_metric(success: bool, req_time: Optional[float] = None, status_code: Optional[int] = None):
     async with metrics.lock:
         metrics["total_requests"] += 1
-        if success:
+        is_ok = bool(success) and (status_code is None or (100 <= status_code < 400))
+        if is_ok:
             metrics["successful_requests"] += 1
         else:
             metrics["failed_requests"] += 1
@@ -1083,6 +1084,7 @@ async def target_audit(url: str, attack_id: str):
 
             # ── 1. Fetch base response ──────────────────────────────
             try:
+                t_base = time.time()
                 async with session.get(base_url, timeout=aiohttp.ClientTimeout(total=10),
                                        allow_redirects=True,
                                        headers={"User-Agent": "Mozilla/5.0 (compatible; SecurityScanner/1.0)"}) as resp:
@@ -1090,7 +1092,9 @@ async def target_audit(url: str, attack_id: str):
                     body_raw = await resp.read()
                     body = body_raw[:8000].decode("utf-8", errors="replace").lower()
                     status = resp.status
+                    await record_request_metric(status < 400, time.time() - t_base, status)
             except Exception as e:
+                await record_request_metric(False)
                 await manager.broadcast(json.dumps({
                     "type": "log", "message": f"[Audit] Could not reach {host}: {e}", "level": "warning"
                 }))
@@ -1186,8 +1190,10 @@ async def target_audit(url: str, attack_id: str):
             # ── 6. Dangerous HTTP Methods ───────────────────────────
             for method in ("TRACE", "PUT", "DELETE", "CONNECT"):
                 try:
+                    t_m = time.time()
                     async with session.request(method, base_url,
                                                timeout=aiohttp.ClientTimeout(total=5)) as r:
+                        await record_request_metric(r.status < 400, time.time() - t_m, r.status)
                         if r.status not in (405, 501, 403, 400, 404):
                             await _broadcast_finding({
                                 "type": f"Dangerous HTTP Method Allowed: {method}", "severity": "high",
@@ -1197,7 +1203,7 @@ async def target_audit(url: str, attack_id: str):
                                 "timestamp": ts, "attack_id": attack_id, "category": "methods"
                             })
                 except Exception:
-                    pass
+                    await record_request_metric(False)
 
             # ── 7. Error / Info Leakage ─────────────────────────────
             error_probes = [
@@ -1233,8 +1239,10 @@ async def target_audit(url: str, attack_id: str):
                 if not metrics["attacks_running"] and attack_id != "audit_only":
                     break
                 try:
+                    t_pr = time.time()
                     async with session.get(probe_url, timeout=aiohttp.ClientTimeout(total=5),
                                            allow_redirects=False) as pr:
+                        await record_request_metric(pr.status < 400, time.time() - t_pr, pr.status)
                         if pr.status in (200, 206):
                             probe_body = (await pr.read())[:500].decode("utf-8", errors="replace")
                             # Filter false positives — check body has real content
@@ -1246,15 +1254,17 @@ async def target_audit(url: str, attack_id: str):
                                     "timestamp": ts, "attack_id": attack_id, "category": "exposure"
                                 })
                 except Exception:
-                    pass
+                    await record_request_metric(False)
 
             # ── 8. XSS Reflection Quick Check ──────────────────────
             xss_probe = "<script>alert(1)</script>"
             try:
+                t_xr = time.time()
                 async with session.get(
                     f"{base_url}?q={xss_probe}",
                     timeout=aiohttp.ClientTimeout(total=5)
                 ) as xr:
+                    await record_request_metric(xr.status < 400, time.time() - t_xr, xr.status)
                     xr_body = (await xr.read())[:4000].decode("utf-8", errors="replace")
                     if xss_probe in xr_body or "alert(1)" in xr_body:
                         await _broadcast_finding({
@@ -1266,15 +1276,17 @@ async def target_audit(url: str, attack_id: str):
                             "timestamp": ts, "attack_id": attack_id, "category": "xss"
                         })
             except Exception:
-                pass
+                await record_request_metric(False)
 
             # ── 9. SQL Error Detection ──────────────────────────────
             sql_probe = "'"
             try:
+                t_sr = time.time()
                 async with session.get(
                     f"{base_url}?id={sql_probe}",
                     timeout=aiohttp.ClientTimeout(total=5)
                 ) as sr:
+                    await record_request_metric(sr.status < 400, time.time() - t_sr, sr.status)
                     sr_body = (await sr.read())[:4000].decode("utf-8", errors="replace").lower()
                     sql_errors = ["sql syntax", "mysql_fetch", "ora-", "odbc driver", "sqlite",
                                   "pg_query", "unclosed quotation", "unterminated quoted string",
@@ -1291,17 +1303,19 @@ async def target_audit(url: str, attack_id: str):
                             })
                             break
             except Exception:
-                pass
+                await record_request_metric(False)
 
             # ── 10. Open Redirect Check ─────────────────────────────
             redirect_probe = "https://evil.com"
             for param in ("url", "redirect", "next", "return", "goto", "redir"):
                 try:
+                    t_rr = time.time()
                     async with session.get(
                         f"{base_url}?{param}={redirect_probe}",
                         timeout=aiohttp.ClientTimeout(total=5),
                         allow_redirects=False
                     ) as rr:
+                        await record_request_metric(rr.status < 400, time.time() - t_rr, rr.status)
                         loc = rr.headers.get("Location", "")
                         if "evil.com" in loc:
                             await _broadcast_finding({
@@ -1314,7 +1328,7 @@ async def target_audit(url: str, attack_id: str):
                             })
                             break
                 except Exception:
-                    pass
+                    await record_request_metric(False)
 
     except Exception as e:
         await manager.broadcast(json.dumps({
@@ -2353,6 +2367,18 @@ async def run_attack_coordinator(req: AttackRequest, attack_id: str):
         stats_task.cancel()
         if req.attack_type in metrics["current_attacks"]:
             metrics["current_attacks"].remove(req.attack_type)
+
+        latest_rt = metrics["response_times"][-1] if metrics["response_times"] else None
+        await manager.broadcast(json.dumps({
+            "type": "metrics",
+            "data": {
+                "total_requests": metrics["total_requests"],
+                "successful_requests": metrics["successful_requests"],
+                "failed_requests": metrics["failed_requests"],
+                "response_time": latest_rt,
+                "attack_id": attack_id
+            }
+        }))
         
         history_item = {
             "attack_id": attack_id,
@@ -2361,6 +2387,7 @@ async def run_attack_coordinator(req: AttackRequest, attack_id: str):
             "duration": req.duration,
             "total_requests": metrics["total_requests"],
             "successful_requests": metrics["successful_requests"],
+            "failed_requests": metrics["failed_requests"],
             "timestamp": datetime.now().isoformat()
         }
         async with metrics_lock:
@@ -2377,6 +2404,7 @@ async def run_attack_coordinator(req: AttackRequest, attack_id: str):
                 "completed": True,
                 "total_requests": metrics["total_requests"],
                 "successful_requests": metrics["successful_requests"],
+                "failed_requests": metrics["failed_requests"],
                 "timestamp": history_item["timestamp"]
             }
         }))
