@@ -9,7 +9,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link rel="stylesheet" href="/static/style.css?v=11">
+    <link rel="stylesheet" href="/static/style.css?v=15">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -17,13 +19,18 @@
     <!-- Background noise -->
     <div class="bg-base" aria-hidden="true"></div>
 
-    <!-- Topbar — brand + status only, NO nav links -->
+    <!-- Topbar — brand + status + theme toggle -->
     <header class="topbar">
         <div class="topbar-brand">
-            <div class="brand-mark"><i class="fas fa-shield-halved"></i></div>
+            <div class="brand-mark"><i data-lucide="shield" class="lucide-sm"></i></div>
             <span class="brand-name">CyberStrike <strong>Suite</strong></span>
+            <span class="bklit-pill">v2.4 Enterprise</span>
         </div>
         <div class="topbar-right">
+            <button class="btn-ghost-sm" id="theme-toggle" type="button" aria-label="Toggle Light/Dark Theme" title="Switch Theme">
+                <i class="fas fa-sun" id="theme-icon"></i>
+                <span id="theme-label">Light</span>
+            </button>
             <div class="status-badge">
                 <span class="status-dot ready" id="status-indicator"></span>
                 <span id="status-text">Ready</span>
@@ -38,34 +45,34 @@
             <div class="sidebar-section">
                 <p class="sidebar-label">Monitoring</p>
                 <a class="slink active" href="#" data-page="dashboard">
-                    <i class="fas fa-chart-line"></i> Dashboard
+                    <i data-lucide="layout-dashboard" class="lucide-nav"></i> <span>Dashboard</span>
                 </a>
             </div>
             <div class="sidebar-section">
-                <p class="sidebar-label">Offensive</p>
+                <p class="sidebar-label">Security Suites</p>
                 <a class="slink" href="#" data-page="attacks">
-                    <i class="fas fa-crosshairs"></i> Attacks
+                    <i data-lucide="crosshair" class="lucide-nav"></i> <span>Test Modules</span>
                 </a>
                 <a class="slink" href="#" data-page="redteam">
-                    <i class="fas fa-user-secret"></i> Red Team
+                    <i data-lucide="terminal" class="lucide-nav"></i> <span>Red Team</span>
                 </a>
             </div>
             <div class="sidebar-section">
                 <p class="sidebar-label">Intelligence</p>
                 <a class="slink" href="#" data-page="recon">
-                    <i class="fas fa-magnifying-glass"></i> Recon &amp; OSINT
+                    <i data-lucide="radar" class="lucide-nav"></i> <span>Recon &amp; OSINT</span>
                 </a>
                 <a class="slink" href="#" data-page="vulnerabilities">
-                    <i class="fas fa-bug"></i> Findings
+                    <i data-lucide="shield-alert" class="lucide-nav"></i> <span>Findings</span>
                 </a>
                 <a class="slink" href="#" data-page="history">
-                    <i class="fas fa-clock-rotate-left"></i> History
+                    <i data-lucide="history" class="lucide-nav"></i> <span>History</span>
                 </a>
             </div>
             <div class="sidebar-section sidebar-bottom">
                 <p class="sidebar-label">System</p>
                 <a class="slink" href="#" data-page="settings">
-                    <i class="fas fa-sliders"></i> Settings
+                    <i data-lucide="sliders-horizontal" class="lucide-nav"></i> <span>Settings</span>
                 </a>
             </div>
         </aside>
@@ -73,75 +80,105 @@
         <!-- Content -->
         <main class="content">
 
-            <!-- ─── Dashboard ─── -->
+            <!-- ─── Dashboard (ThreeUI + Magic UI Bento + Bklit UI + Aceternity Spotlight) ─── -->
             <section id="dashboard-page" class="page active">
-                <div class="page-header">
-                    <h1>Dashboard</h1>
-                    <p>Real-time security monitoring</p>
+                <!-- ThreeUI 3D Spatial Telemetry Hero Banner -->
+                <div class="glass-card spotlight-card threeui-banner">
+                    <div class="threeui-copy">
+                        <div class="bklit-eyebrow">
+                            <i data-lucide="cpu" class="lucide-xs"></i>
+                            <span>SPATIAL TELEMETRY ENGINE</span>
+                        </div>
+                        <h1>Security Posture &amp; Telemetry</h1>
+                        <p>Real-time request inspection, passive header hardening, and vulnerability verification.</p>
+                    </div>
+                    <div class="threeui-stage" id="threeui-canvas-container" aria-label="3D Spatial Telemetry Node"></div>
                 </div>
 
-                <div class="stats-grid">
-                    <div class="stat-card">
+                <!-- Magic UI Bento KPI Grid with Bklit UI Trend Badges & Aceternity Spotlight -->
+                <div class="stats-grid bento-stats">
+                    <div class="stat-card spotlight-card">
                         <div class="stat-top">
                             <span class="stat-label">Total Requests</span>
-                            <i class="fas fa-paper-plane stat-ico"></i>
+                            <span class="bklit-badge"><i data-lucide="trending-up" class="lucide-xs"></i> Telemetry</span>
                         </div>
-                        <div class="stat-val" id="total-requests">0</div>
+                        <div class="stat-val" id="total-requests" data-ticker="0">0</div>
+                        <div class="stat-sub">Cumulative dispatched probes</div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card spotlight-card">
                         <div class="stat-top">
                             <span class="stat-label">Successful</span>
-                            <i class="fas fa-circle-check stat-ico success"></i>
+                            <span class="bklit-badge success"><i data-lucide="check-circle-2" class="lucide-xs"></i> 2xx / 3xx</span>
                         </div>
-                        <div class="stat-val success" id="successful-requests">0</div>
+                        <div class="stat-val success" id="successful-requests" data-ticker="0">0</div>
+                        <div class="stat-sub">Validated HTTP responses</div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card spotlight-card">
                         <div class="stat-top">
                             <span class="stat-label">Errors / Blocks</span>
-                            <i class="fas fa-circle-xmark stat-ico danger"></i>
+                            <span class="bklit-badge danger"><i data-lucide="shield-alert" class="lucide-xs"></i> 4xx / 5xx</span>
                         </div>
-                        <div class="stat-val danger" id="failed-requests">0</div>
+                        <div class="stat-val danger" id="failed-requests" data-ticker="0">0</div>
+                        <div class="stat-sub">WAF drops &amp; timeouts</div>
                     </div>
-                    <div class="stat-card">
+                    <div class="stat-card spotlight-card">
                         <div class="stat-top">
-                            <span class="stat-label">Connection</span>
-                            <i class="fas fa-satellite-dish stat-ico"></i>
+                            <span class="stat-label">Engine Link</span>
+                            <span class="bklit-badge"><i data-lucide="radio" class="lucide-xs"></i> WebSocket</span>
                         </div>
                         <div class="stat-val stat-val--sm">
-                            <span class="status-dot ready"></span> <span>Ready</span>
+                            <span class="status-dot ready" id="card-status-dot"></span> <span id="card-status-text">Ready</span>
                         </div>
+                        <div class="stat-sub">Real-time full-duplex stream</div>
                     </div>
                 </div>
 
+                <!-- Bklit UI Analytics Charts -->
                 <div class="two-col">
-                    <div class="glass-card">
-                        <div class="card-head"><i class="fas fa-wave-square"></i> Response Time</div>
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <i data-lucide="activity" class="lucide-xs"></i>
+                            <span>Response Latency (ms)</span>
+                            <span class="bklit-badge" style="margin-left:auto">Monotone Bézier</span>
+                        </div>
                         <div class="card-body"><div class="chart-wrap"><canvas id="response-time-chart"></canvas></div></div>
                     </div>
-                    <div class="glass-card">
-                        <div class="card-head"><i class="fas fa-chart-bar"></i> Request Rate</div>
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <i data-lucide="bar-chart-3" class="lucide-xs"></i>
+                            <span>Traffic Distribution</span>
+                            <span class="bklit-badge" style="margin-left:auto">Live Ratio</span>
+                        </div>
                         <div class="card-body"><div class="chart-wrap"><canvas id="request-rate-chart"></canvas></div></div>
                     </div>
                 </div>
 
-                <div class="glass-card">
-                    <div class="card-head">
-                        <i class="fas fa-terminal"></i> Activity Log
-                        <button class="btn-ghost-sm" id="clear-log" style="margin-left:auto"><i class="fas fa-trash-can"></i> Clear</button>
-                    </div>
-                    <div class="log-box" id="log-container">
-                        <div class="log-line log-info">› System initialized. Ready for testing.</div>
-                    </div>
-                </div>
-                <div class="glass-card" style="margin-top:20px">
-                    <div class="card-head"><i class="fas fa-crosshairs"></i> Quick Self-Test</div>
-                    <div class="card-body" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-                        <div style="flex:1;min-width:200px">
-                            <p style="margin:0;margin-bottom:8px;font-size:0.85rem;color:var(--t2)">One-click IP stress test — enter your IP to test it.</p>
-                            <input type="text" id="selftest-ip-input" placeholder="e.g. 192.168.1.100" class="finput" style="max-width: 250px;">
+                <div class="bento-bottom-grid">
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <i data-lucide="terminal-square" class="lucide-xs"></i>
+                            <span>Activity Telemetry Stream</span>
+                            <button class="btn-ghost-sm" id="clear-log" style="margin-left:auto"><i data-lucide="trash-2" class="lucide-xs"></i> Clear</button>
                         </div>
-                        <button class="btn-primary" id="btn-selftest-start" style="min-width:140px"><i class="fas fa-bolt"></i> Launch Self-Test</button>
-                        <button class="btn-danger" id="btn-selftest-stop" disabled style="min-width:120px"><i class="fas fa-stop"></i> Stop</button>
+                        <div class="log-box" id="log-container">
+                            <div class="log-line log-info">[Init] System initialized. Ready for testing.</div>
+                        </div>
+                    </div>
+                    <div class="glass-card spotlight-card">
+                        <div class="card-head">
+                            <i data-lucide="gauge" class="lucide-xs"></i>
+                            <span>Quick Diagnostics</span>
+                        </div>
+                        <div class="card-body" style="display:flex;flex-direction:column;justify-content:space-between;gap:14px">
+                            <div>
+                                <p style="margin:0;margin-bottom:10px;font-size:0.82rem;color:var(--t2)">Run a rapid target reachability and load diagnostic against an authorized IP.</p>
+                                <input type="text" id="selftest-ip-input" placeholder="e.g. 127.0.0.1" class="finput">
+                            </div>
+                            <div style="display:flex;gap:10px">
+                                <button class="btn-primary" id="btn-selftest-start" style="flex:1;justify-content:center"><i data-lucide="play" class="lucide-xs"></i> Launch Test</button>
+                                <button class="btn-danger" id="btn-selftest-stop" disabled style="min-width:96px;justify-content:center"><i data-lucide="square" class="lucide-xs"></i> Stop</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -296,15 +333,14 @@
                                     </div>
                                 </div>
                                 
-                                <div id="xss-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid rgba(255,255,255,0.05)">
+                                <div id="xss-fields" style="display:none; margin-top:15px; padding-top:15px; border-top:1px solid var(--gb)">
                                     <div class="field-row">
                                         <div class="field">
-                                            <label class="flabel">Vector</label>
-                                            <select class="finput">
-                                                <option>Reflected (GET/POST)</option>
-                                                <option value="stored_xss">Stored XSS</option>
-                                                <option>Stored (Persistent)</option>
-                                                <option>DOM-Based</option>
+                                            <label class="flabel" for="xss-vector-select">Vector</label>
+                                            <select class="finput" id="xss-vector-select">
+                                                <option value="xss">Reflected (GET/POST)</option>
+                                                <option value="stored_xss">Stored XSS (Persistent)</option>
+                                                <option value="xss">DOM-Based</option>
                                             </select>
                                         </div>
                                         <div class="field">
@@ -563,6 +599,7 @@
                                 <button class="btn-sm" id="run-ratelimit">Rate Limit</button>
                                 <button class="btn-sm" id="run-breaches">Breaches</button>
                                 <button class="btn-sm" id="run-ioc">IOC</button>
+                                <button class="btn-sm" id="run-wifi-audit">Wi-Fi Audit</button>
                             </div>
                         </div>
                     </div>
@@ -641,7 +678,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=13"></script>
+    <script src="/static/app.js?v=14"></script>
 
 </body>
 </html>

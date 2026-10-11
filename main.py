@@ -1708,7 +1708,7 @@ SECURITY_HEADERS = {
     "x-xss-protection": "Legacy XSS filter (deprecated but checked)",
     "access-control-allow-origin": "CORS policy",
     "cache-control": "Cache control directives",
-    "x-powered-by": "⚠ Tech disclosure (should be removed)"
+    "x-powered-by": "[WARN] Tech disclosure (should be removed)"
 }
 
 @app.post("/api/recon/headers")
@@ -1721,18 +1721,28 @@ async def recon_headers(req: ReconRequest):
                 headers = dict(resp.headers)
                 status  = resp.status
 
+        lower_headers = {k.lower(): v for k, v in headers.items()}
         audit = {}
         for header, desc in SECURITY_HEADERS.items():
-            val = headers.get(header) or headers.get(header.title())
+            val = lower_headers.get(header)
             audit[header] = {
                 "present": val is not None,
                 "value": val,
                 "description": desc,
-                "risk": "low" if val is not None else ("info" if header == "x-powered-by" else "high")
+                "risk": "low" if (val is not None and header != "x-powered-by") else ("medium" if (val is not None and header == "x-powered-by") else ("low" if header == "x-powered-by" else "high"))
             }
 
+        conn_hdr = lower_headers.get("connection", "")
+        keep_alive_hdr = lower_headers.get("keep-alive", "")
+        connection_posture = {
+            "connection_header": conn_hdr or "not explicitly set",
+            "keep_alive_header": keep_alive_hdr or "not explicitly set",
+            "timeout_configured": "timeout=" in keep_alive_hdr.lower(),
+            "recommendation": "Configure explicit Keep-Alive timeout and max request bounds at the reverse proxy to mitigate idle connection exhaustion."
+        }
+
         missing = [h for h, v in audit.items() if not v["present"] and h != "x-powered-by"]
-        score   = int(((len(SECURITY_HEADERS) - len(missing)) / len(SECURITY_HEADERS)) * 100)
+        score   = int(((len(SECURITY_HEADERS) - 1 - len(missing)) / max(len(SECURITY_HEADERS) - 1, 1)) * 100)
 
         return JSONResponse(content={
             "host": host,
@@ -1740,6 +1750,7 @@ async def recon_headers(req: ReconRequest):
             "status": status,
             "security_score": score,
             "audit": audit,
+            "connection_posture": connection_posture,
             "missing_count": len(missing),
             "all_headers": {k: v for k, v in headers.items()}
         })
@@ -2363,10 +2374,9 @@ async def redteam_lateral(req: RedTeamRequest):
         "recommended_tools": ["Impacket", "CrackMapExec", "Evil-WinRM", "Mimikatz", "Rubeus", "BloodHound", "SharpHound", "Cobalt Strike"],
         "note": "Use only on networks you own or have explicit written authorization to test."})
 
-@app.get("/api/recon/wifi-audit")
+@app.api_route("/api/recon/wifi-audit", methods=["GET", "POST"])
 async def wifi_security_audit():
     """Passive WLAN posture & 802.11w (PMF) compliance auditor."""
-    import subprocess
     networks: List[Dict[str, Any]] = []
     try:
         proc = await asyncio.create_subprocess_exec(

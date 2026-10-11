@@ -176,10 +176,51 @@ function updateStats(data) {
 
 // ── Status dot ─────────────────────────────────────────────────────
 function setStatus(state, label) {
-    const dot  = el('status-indicator');
-    const text = el('status-text');
-    if (dot)  dot.className  = `status-dot ${state}`;
-    if (text) text.textContent = label;
+    const dot      = el('status-indicator');
+    const text     = el('status-text');
+    const cardDot  = el('card-status-dot');
+    const cardText = el('card-status-text');
+    if (dot)      dot.className      = `status-dot ${state}`;
+    if (text)     text.textContent   = label;
+    if (cardDot)  cardDot.className  = `status-dot ${state}`;
+    if (cardText) cardText.textContent = label;
+}
+
+// ── Theme toggle (Light / Dark Mode) ───────────────────────────────
+function applyTheme(theme) {
+    const isLight = theme === 'light';
+    if (isLight) {
+        document.documentElement.setAttribute('data-theme', 'light');
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
+    localStorage.setItem('cyberstrike_theme', isLight ? 'light' : 'dark');
+    const icon  = el('theme-icon');
+    const label = el('theme-label');
+    if (icon)  icon.className  = isLight ? 'fas fa-moon' : 'fas fa-sun';
+    if (label) label.textContent = isLight ? 'Dark' : 'Light';
+
+    const gridColor   = isLight ? 'rgba(15,23,42,0.08)' : 'rgba(255,255,255,0.05)';
+    const tickColor   = isLight ? 'rgba(15,23,42,0.55)' : 'rgba(255,255,255,0.35)';
+    const lineBorder  = isLight ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.65)';
+    const lineFill    = isLight ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.05)';
+
+    if (window.responseTimeChart) {
+        const rt = window.responseTimeChart;
+        rt.options.scales.y.grid.color  = gridColor;
+        rt.options.scales.y.ticks.color = tickColor;
+        rt.options.scales.x.ticks.color = tickColor;
+        rt.data.datasets[0].borderColor     = lineBorder;
+        rt.data.datasets[0].backgroundColor = lineFill;
+        rt.update('none');
+    }
+    if (window.requestRateChart) {
+        const rr = window.requestRateChart;
+        rr.options.scales.y.grid.color  = gridColor;
+        rr.options.scales.y.ticks.color = tickColor;
+        rr.options.scales.x.ticks.color = tickColor;
+        rr.update('none');
+    }
 }
 
 // ── Attack status ──────────────────────────────────────────────────
@@ -398,8 +439,16 @@ async function fetchStatus() {
             failed_requests:     data.stats?.failed_requests     || 0
         });
 
-        if (data.vulnerabilities && data.vulnerabilities.length) data.vulnerabilities.forEach(addVuln);
-        if (data.history && data.history.length) data.history.forEach(addHistoryEntry);
+        if (data.vulnerabilities && data.vulnerabilities.length) {
+            const vc = el('vulnerabilities-container');
+            if (vc) vc.innerHTML = '';
+            data.vulnerabilities.forEach(addVuln);
+        }
+        if (data.history && data.history.length) {
+            const hc = el('attack-history-container');
+            if (hc) hc.innerHTML = '';
+            data.history.forEach(addHistoryEntry);
+        }
     } catch (e) { /* backend not ready yet */ }
 }
 
@@ -409,9 +458,15 @@ async function startAttack() {
     if (!urlVal)        { alert('Enter a target URL first.'); return; }
     if (!BACKEND_HOST)  { alert('No backend configured - go to Settings.'); return; }
 
+    let selectedType = el('attack-type-input') ? el('attack-type-input').value : 'ddos';
+    const xssVec = el('xss-vector-select');
+    if ((selectedType === 'xss' || selectedType === 'stored_xss') && xssVec && xssVec.value === 'stored_xss') {
+        selectedType = 'stored_xss';
+    }
+
     const payload = {
         url:         urlVal,
-        attack_type: el('attack-type-input') ? el('attack-type-input').value : 'ddos',
+        attack_type: selectedType,
         duration:    parseInt(el('duration-input')  ? el('duration-input').value  : 30),
         intensity:   parseInt(el('intensity-input') ? el('intensity-input').value : 5),
         threads:     parseInt(el('threads-input')   ? el('threads-input').value   : 10),
@@ -483,7 +538,10 @@ async function callRecon(endpoint, extra) {
         if (outBox) outBox.innerHTML = '<div class="log-line log-error">No backend configured - go to Settings.</div>';
         return null;
     }
-    const target = el('recon-target') ? el('recon-target').value.trim() : '';
+    let target = el('recon-target') ? el('recon-target').value.trim() : '';
+    if (!target && endpoint === 'wifi-audit') {
+        target = 'wlan0';
+    }
     if (!target) {
         if (outBox) outBox.innerHTML = '<div class="log-line log-warning">Enter a target domain first.</div>';
         return null;
@@ -530,8 +588,82 @@ function showRT(data, resultId) {
     box.innerHTML = '<pre class="recon-pre">' + JSON.stringify(data, null, 2) + '</pre>';
 }
 
+// ── ThreeUI 3D Spatial Wireframe Telemetry Node ────────────────────
+function initThreeUINode() {
+    const stage = el('threeui-canvas-container');
+    if (!stage || typeof THREE === 'undefined') return;
+
+    const width  = stage.clientWidth  || 140;
+    const height = stage.clientHeight || 92;
+
+    const scene  = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
+    camera.position.z = 3.2;
+
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8));
+    renderer.setSize(width, height);
+    stage.innerHTML = '';
+    stage.appendChild(renderer.domElement);
+
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const geom = new THREE.IcosahedronGeometry(1.05, 1);
+    const mat  = new THREE.MeshBasicMaterial({
+        color: isLight ? 0x475569 : 0x94a3b8,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.65
+    });
+    window.threeUIMaterial = mat;
+
+    const mesh = new THREE.Mesh(geom, mat);
+    scene.add(mesh);
+
+    let targetRotX = 0;
+    let targetRotY = 0;
+    stage.addEventListener('mousemove', function(e) {
+        const rect = stage.getBoundingClientRect();
+        const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const ny = ((e.clientY - rect.top) / rect.height) * 2 - 1;
+        targetRotY = nx * 0.6;
+        targetRotX = ny * 0.4;
+    });
+
+    function animate() {
+        requestAnimationFrame(animate);
+        const curLight = document.documentElement.getAttribute('data-theme') === 'light';
+        mat.color.setHex(curLight ? 0x475569 : 0x94a3b8);
+        mesh.rotation.y += 0.0045 + (targetRotY - mesh.rotation.y) * 0.04;
+        mesh.rotation.x += 0.0025 + (targetRotX - mesh.rotation.x) * 0.04;
+        renderer.render(scene, camera);
+    }
+    animate();
+}
+
+// ── Aceternity UI Cursor-Tracking Spotlights ───────────────────────
+function initSpotlights() {
+    const cards = document.querySelectorAll('.glass-card, .stat-card, .spotlight-card');
+    cards.forEach(function(card) {
+        card.classList.add('spotlight-card');
+        card.addEventListener('mousemove', function(e) {
+            const rect = card.getBoundingClientRect();
+            card.style.setProperty('--mouse-x', (e.clientX - rect.left) + 'px');
+            card.style.setProperty('--mouse-y', (e.clientY - rect.top) + 'px');
+        });
+    });
+}
+
 // ── Wire all buttons ───────────────────────────────────────────────
 function wireButtons() {
+    // Theme toggle
+    var themeBtn = el('theme-toggle');
+    if (themeBtn) {
+        themeBtn.onclick = function() {
+            var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+            applyTheme(cur === 'light' ? 'dark' : 'light');
+        };
+    }
+
     // Attack controls
     var startBtn = el('start-attack');
     var stopBtn  = el('stop-attack');
@@ -577,7 +709,8 @@ function wireButtons() {
         ['run-waf',          'waf',          'WAF Detection'],
         ['run-ratelimit',    'ratelimit',    'Rate Limit'],
         ['run-breaches',     'breaches',     'Breach Check'],
-        ['run-ioc',          'ioc',          'IOC / Threat Intel']
+        ['run-ioc',          'ioc',          'IOC / Threat Intel'],
+        ['run-wifi-audit',   'wifi-audit',   'Wi-Fi Security Audit']
     ];
     reconMap.forEach(function(row) {
         var btn = el(row[0]);
@@ -683,10 +816,17 @@ async function boot() {
         if (h.indexOf('localhost') !== -1 || h.indexOf('127.0.0.1') !== -1) BACKEND_HOST = h;
     }
 
-    // Init
+    // Init UI & Creative UI Components
+    if (typeof lucide !== 'undefined' && lucide.createIcons) {
+        lucide.createIcons();
+    }
     initNav();
     initAttackSelector();
     initCharts();
+    var savedTheme = localStorage.getItem('cyberstrike_theme') || 'dark';
+    applyTheme(savedTheme);
+    initThreeUINode();
+    initSpotlights();
     wireButtons();
 
     // Pre-fill Settings input
