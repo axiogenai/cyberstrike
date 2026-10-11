@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link rel="stylesheet" href="/static/style.css?v=21">
+    <link rel="stylesheet" href="/static/style.css?v=22">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -159,54 +159,56 @@
                         </div>
                     </div>
 
-                    <!-- Interactive Live Target Posture & Quick-Audit HUD -->
-                    <div class="posture-hud" id="posture-hud-panel">
-                        <div class="phud-top">
-                            <div class="phud-input-wrap">
-                                <i data-lucide="globe" class="lucide-xs phud-ico"></i>
-                                <input type="text" id="hero-quick-target" class="phud-input" value="http://127.0.0.1:8083" placeholder="https://example.com">
+                    <!-- Interactive ThreeUI Multi-Mode Cyber Graphics Stage -->
+                    <div class="gfx-stage-card" id="posture-hud-panel">
+                        <div class="gfx-stage-head">
+                            <div class="gfx-title-wrap">
+                                <i data-lucide="cpu" class="lucide-xs phud-amber"></i>
+                                <span class="gfx-stage-title" id="gfx-mode-label">ISOMETRIC LOGIC CORE</span>
                             </div>
-                            <button type="button" class="btn-primary phud-btn" id="hero-btn-quick-audit">
-                                <i data-lucide="scan-line" class="lucide-xs"></i>
-                                <span>Quick Audit</span>
-                            </button>
+                            <div class="gfx-mode-tabs" role="tablist">
+                                <button type="button" class="gfx-tab active" data-gfx-mode="core">Core</button>
+                                <button type="button" class="gfx-tab" data-gfx-mode="globe">Globe</button>
+                                <button type="button" class="gfx-tab" data-gfx-mode="wave">Wave</button>
+                            </div>
                         </div>
 
-                        <div class="phud-grid">
-                            <div class="phud-cell">
-                                <div class="phud-cell-head">
-                                    <span class="phud-label">Header Score</span>
-                                    <i data-lucide="shield" class="lucide-xs phud-amber"></i>
-                                </div>
-                                <div class="phud-val" id="hud-sec-score">— / 100</div>
-                                <div class="phud-sub" id="hud-sec-sub">Click Quick Audit</div>
+                        <div class="gfx-canvas-wrap" id="hero-gfx-container">
+                            <canvas id="hero-gfx-canvas"></canvas>
+                            <div class="gfx-hud-corner gfx-hud-tl">
+                                <span class="gfx-hud-tag">SYS // TELEMETRY</span>
+                                <span class="gfx-hud-coord" id="gfx-live-coord">X: 0.00  Y: 0.00</span>
                             </div>
-
-                            <div class="phud-cell">
-                                <div class="phud-cell-head">
-                                    <span class="phud-label">WAF / Edge</span>
-                                    <i data-lucide="layers" class="lucide-xs"></i>
-                                </div>
-                                <div class="phud-val" id="hud-waf-status">Unscanned</div>
-                                <div class="phud-sub" id="hud-waf-sub">Edge filter status</div>
+                            <div class="gfx-hud-corner gfx-hud-tr">
+                                <span class="bklit-pill" id="gfx-fps-pill">60 FPS</span>
                             </div>
+                        </div>
 
-                            <div class="phud-cell">
-                                <div class="phud-cell-head">
-                                    <span class="phud-label">Keep-Alive</span>
-                                    <i data-lucide="activity" class="lucide-xs"></i>
+                        <div class="gfx-QuickBar">
+                            <div class="gfx-metrics-strip">
+                                <div class="gfx-mini-stat">
+                                    <span class="gfx-mini-lbl">Headers</span>
+                                    <span class="gfx-mini-val" id="hud-sec-score">—/100</span>
                                 </div>
-                                <div class="phud-val" id="hud-conn-posture">Standby</div>
-                                <div class="phud-sub" id="hud-conn-sub">Timeout posture</div>
+                                <div class="gfx-mini-stat">
+                                    <span class="gfx-mini-lbl">WAF</span>
+                                    <span class="gfx-mini-val" id="hud-waf-status">Standby</span>
+                                </div>
+                                <div class="gfx-mini-stat">
+                                    <span class="gfx-mini-lbl">Keep-Alive</span>
+                                    <span class="gfx-mini-val" id="hud-conn-posture">Bounded</span>
+                                </div>
+                                <div class="gfx-mini-stat">
+                                    <span class="gfx-mini-lbl">Findings</span>
+                                    <span class="gfx-mini-val phud-amber" id="hud-vuln-total">0</span>
+                                </div>
                             </div>
-
-                            <div class="phud-cell">
-                                <div class="phud-cell-head">
-                                    <span class="phud-label">Verified Vulns</span>
-                                    <i data-lucide="bug" class="lucide-xs"></i>
-                                </div>
-                                <div class="phud-val" id="hud-vuln-total">0</div>
-                                <div class="phud-sub">Active session findings</div>
+                            <div class="gfx-quick-audit-row">
+                                <input type="text" id="hero-quick-target" class="phud-input" value="http://127.0.0.1:8083" placeholder="https://example.com">
+                                <button type="button" class="btn-primary phud-btn" id="hero-btn-quick-audit">
+                                    <i data-lucide="scan-line" class="lucide-xs"></i>
+                                    <span>Audit</span>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -939,7 +941,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=21"></script>
+    <script src="/static/app.js?v=22"></script>
 
 </body>
 </html>
