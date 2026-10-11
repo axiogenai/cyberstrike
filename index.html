@@ -174,16 +174,16 @@
                     <div class="glass-card spotlight-card">
                         <div class="card-head">
                             <div class="card-head-title">
-                                <i data-lucide="shield-alert" class="lucide-xs"></i>
-                                <span>Vulnerability Severity Breakdown</span>
+                                <i data-lucide="activity" class="lucide-xs"></i>
+                                <span>Live Telemetry Stream</span>
                             </div>
                             <div class="card-head-meta">
-                                <span class="bklit-badge danger" id="avg-latency-badge">Critical: 0</span>
-                                <span class="bklit-badge" id="peak-latency-badge">High: 0</span>
+                                <span class="bklit-badge" id="avg-latency-badge">Live: 0.0 req/s</span>
+                                <span class="bklit-badge" id="peak-latency-badge">Peak: 0.0 req/s</span>
                             </div>
                         </div>
                         <div class="card-body">
-                            <div class="chart-wrap"><canvas id="response-time-chart"></canvas></div>
+                            <div class="chart-wrap" id="bklit-live-line-chart" style="position:relative;height:240px;width:100%;user-select:none;touch-action:none;"></div>
                         </div>
                     </div>
 
@@ -191,10 +191,10 @@
                         <div class="card-head">
                             <div class="card-head-title">
                                 <i data-lucide="bar-chart-3" class="lucide-xs"></i>
-                                <span>Throughput &amp; Block Ratio</span>
+                                <span>Throughput &amp; Severity Breakdown</span>
                             </div>
                             <div class="card-head-meta">
-                                <span class="bklit-badge">2xx vs 4xx/5xx</span>
+                                <span class="bklit-badge">HTTP + Findings</span>
                             </div>
                         </div>
                         <div class="card-body">
@@ -889,7 +889,7 @@
         </main>
     </div>
 
-    <script src="/static/app.js?v=27"></script>
+    <script src="/static/app.js?v=28"></script>
 
 </body>
 </html>

@@ -12,8 +12,9 @@ let currentAttackId = null;
 let vulnCount = 0;
 let historyCount = 0;
 let hasLiveVelocity = false;
-let recentReqTimestamps = [];
-let lastVelocitySampleTime = 0;
+let recentReqSamples = [];
+let lastSampleTotalReqs = 0;
+let liveRps = 0;
 let peakRps = 0;
 let sevCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
 
@@ -179,13 +180,33 @@ function updateStats(data) {
     if (bSucc)  bSucc.style.width  = `${sPct}%`;
     if (bFail)  bFail.style.width  = `${fPct}%`;
 
-    // Update Severity & Delivery badges
+    // Record cumulative request total with timestamp for smooth rolling window velocity
+    const nowMs = Date.now();
+    recentReqSamples.push({ t: nowMs, total: metricsData.total_requests });
+    while (recentReqSamples.length > 1 && nowMs - recentReqSamples[0].t > 2500) {
+        recentReqSamples.shift();
+    }
+    if (recentReqSamples.length >= 2) {
+        const oldest = recentReqSamples[0];
+        const newest = recentReqSamples[recentReqSamples.length - 1];
+        const dtSec  = Math.max((newest.t - oldest.t) / 1000, 0.4);
+        const dReq   = Math.max(0, newest.total - oldest.total);
+        const rawRps = dReq / dtSec;
+        liveRps = Math.round((liveRps * 0.35 + rawRps * 0.65) * 10) / 10;
+        if (liveRps < 0.15 && dReq === 0) liveRps = 0;
+        if (liveRps > peakRps) peakRps = liveRps;
+    }
+
     const avgB  = el('avg-latency-badge');
     const peakB = el('peak-latency-badge');
     const topL  = el('top-avg-latency');
-    if (avgB)  avgB.textContent  = `Critical: ${sevCounts.Critical}`;
-    if (peakB) peakB.textContent = `High: ${sevCounts.High}`;
+    if (avgB)  avgB.textContent  = `Live: ${liveRps.toFixed(1)} req/s`;
+    if (peakB) peakB.textContent = `Peak: ${peakRps.toFixed(1)} req/s`;
     if (topL)  topL.textContent  = `${sPct}%`;
+
+    if (window.bklitLiveChart) {
+        window.bklitLiveChart.setTargetValue(liveRps);
+    }
 
     updateCharts();
 }
@@ -219,12 +240,8 @@ function applyTheme(theme) {
     const gridColor  = isLight ? 'rgba(15, 23, 42, 0.07)' : 'rgba(255, 255, 255, 0.05)';
     const tickColor  = isLight ? '#64748b' : '#71717a';
 
-    if (window.responseTimeChart) {
-        const rt = window.responseTimeChart;
-        rt.options.scales.y.grid.color  = gridColor;
-        rt.options.scales.y.ticks.color = tickColor;
-        rt.options.scales.x.ticks.color = tickColor;
-        rt.update('none');
+    if (window.bklitLiveChart) {
+        window.bklitLiveChart.setTheme(isLight);
     }
     if (window.requestRateChart) {
         const rr = window.requestRateChart;
@@ -265,11 +282,6 @@ function updateVulnBadges() {
     if (topV) topV.textContent = String(vulnCount);
     if (hdrV) hdrV.textContent = `${vulnCount} Finding${vulnCount === 1 ? '' : 's'}`;
     if (hudV) hudV.textContent = String(vulnCount);
-
-    const avgB  = el('avg-latency-badge');
-    const peakB = el('peak-latency-badge');
-    if (avgB)  avgB.textContent  = `Critical: ${sevCounts.Critical}`;
-    if (peakB) peakB.textContent = `High: ${sevCounts.High}`;
 }
 
 function addVuln(v) {
@@ -356,11 +368,458 @@ function addHistoryEntry(a) {
     box.insertBefore(d, box.firstChild);
 }
 
+// ── Official @bklit/live-line-chart Component Engine ───────────────
+// Direct port of https://ui.bklit.com/r/live-line-chart.json
+// (LiveLineChart + LiveLine + LiveXAxis + LiveYAxis + curveMonotoneX)
+function createBklitLiveLineChart(container) {
+    const LERP_SPEED      = 0.08;
+    const WINDOW_SECS     = 30;
+    const WINDOW_MS       = WINDOW_SECS * 1000;
+    const NUM_X_TICKS     = 5;
+    const NOW_OFFSET_UNIT = 0.65;
+    const X_TICK_UNIT_MS  = WINDOW_MS / (NUM_X_TICKS - 1);
+    const LEADING_MS      = NOW_OFFSET_UNIT * X_TICK_UNIT_MS;
+    const MARGIN          = { top: 20, right: 14, bottom: 30, left: 42 };
+    const EDGE_FADE_PX    = 26;
+    const TICKER_HALF_W   = 50;
+    const FADE_BUFFER     = 20;
+
+    // Seed 30s of initial data points so the live curve spans the full window immediately
+    const nowInitSec = Date.now() / 1000;
+    let points = [];
+    for (let i = 60; i >= 0; i--) {
+        points.push({ time: nowInitSec - i * 0.5, value: 0 });
+    }
+
+    let targetValue = 0;
+    let frame = {
+        now: Date.now(),
+        yMin: 0,
+        yMax: 10,
+        displayValue: 0
+    };
+    let prevInterval = 0;
+    let cursorX = null;
+    let isLight = document.documentElement.getAttribute('data-theme') === 'light';
+
+    // Format HH:MM:SS
+    const hmsFmt = new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+    const formatTime = (ms) => hmsFmt.format(new Date(ms));
+    const formatBadgeValue = (v) => `${Math.max(0, v).toFixed(1)} req/s`;
+    const formatYValue = (v) => (v < 0 ? '' : v >= 10 ? String(Math.round(v)) : v.toFixed(1));
+
+    // Build DOM & SVG matching @bklit/live-line-chart
+    container.innerHTML = `
+        <svg aria-hidden="true" style="display:block;width:100%;height:100%;overflow:visible;">
+            <defs>
+                <linearGradient id="bklit-live-line-grad" x1="0" x2="0" y1="0" y2="1">
+                    <stop id="bklit-grad-stop-1" offset="0%" stop-color="#f59e0b" stop-opacity="1" />
+                    <stop id="bklit-grad-stop-2" offset="100%" stop-color="#f59e0b" stop-opacity="0.65" />
+                </linearGradient>
+                <linearGradient id="bklit-live-area-grad" x1="0" x2="0" y1="0" y2="1">
+                    <stop id="bklit-area-stop-1" offset="0%" stop-color="#f59e0b" stop-opacity="0.14" />
+                    <stop id="bklit-area-stop-2" offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+                </linearGradient>
+                <linearGradient id="bklit-live-fade" x1="0" x2="1" y1="0" y2="0">
+                    <stop offset="0%" stop-color="white" stop-opacity="0" />
+                    <stop offset="4%" stop-color="white" stop-opacity="1" />
+                    <stop id="bklit-fade-dot-stop" offset="84%" stop-color="white" stop-opacity="1" />
+                    <stop offset="100%" stop-color="white" stop-opacity="0" />
+                </linearGradient>
+                <mask id="bklit-live-fade-mask">
+                    <rect id="bklit-fade-mask-rect" x="0" y="-20" width="600" height="260" fill="url(#bklit-live-fade)" />
+                </mask>
+            </defs>
+            <g id="bklit-chart-g" transform="translate(${MARGIN.left},${MARGIN.top})" style="cursor:crosshair;">
+                <rect id="bklit-hit-rect" x="0" y="0" width="600" height="190" fill="transparent" />
+                <g id="bklit-grid-g"></g>
+                <g mask="url(#bklit-live-fade-mask)">
+                    <path id="bklit-area-path" fill="url(#bklit-live-area-grad)" stroke-width="0" />
+                    <path id="bklit-line-path" fill="none" stroke="url(#bklit-live-line-grad)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </g>
+                <line id="bklit-live-guide" x1="0" x2="600" y1="190" y2="190" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4,4" opacity="0.25" />
+                <g id="bklit-scrub-g" style="opacity:0;transition:opacity 0.15s ease;pointer-events:none;">
+                    <line id="bklit-scrub-line" x1="0" x2="0" y1="0" y2="190" stroke="#a1a1aa" stroke-width="1" stroke-dasharray="3,3" opacity="0.55" />
+                    <circle id="bklit-scrub-dot" cx="0" cy="0" r="4" fill="#f59e0b" stroke="var(--bg-card)" stroke-width="2" />
+                </g>
+                <g id="bklit-live-tip-g" style="transition:opacity 0.25s ease;pointer-events:none;">
+                    <circle id="bklit-live-halo" cx="0" cy="0" r="7" fill="#f59e0b" opacity="0.14" />
+                    <circle id="bklit-live-dot" cx="0" cy="0" r="4" fill="#f59e0b" stroke="var(--bg-card)" stroke-width="2" />
+                    <g id="bklit-live-badge" transform="translate(0,0)">
+                        <rect id="bklit-live-badge-rect" x="0" y="-11" height="22" rx="6" fill="var(--bg-elevated)" stroke="var(--gb-bright)" stroke-width="1" opacity="0.96" />
+                        <text id="bklit-live-badge-text" x="7" y="4" fill="var(--t1)" font-family="'JetBrains Mono', monospace" font-size="10.5" font-weight="600">0.0 req/s</text>
+                    </g>
+                </g>
+            </g>
+        </svg>
+        <div id="bklit-y-axis" style="position:absolute;top:${MARGIN.top}px;left:0;width:${MARGIN.left}px;overflow:hidden;pointer-events:none;"></div>
+        <div id="bklit-x-axis" style="position:absolute;inset:0;pointer-events:none;"></div>
+        <div id="bklit-hover-pill" style="position:absolute;bottom:2px;left:0;transform:translateX(-50%);opacity:0;transition:opacity 0.15s ease;pointer-events:none;z-index:20;">
+            <div style="border-radius:9999px;background:var(--t1);color:var(--bg-base);padding:2px 10px;font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;white-space:nowrap;box-shadow:0 4px 12px rgba(0,0,0,0.22);">
+                <span id="bklit-hover-pill-text"></span>
+            </div>
+        </div>
+    `;
+
+    const svgEl        = container.querySelector('svg');
+    const chartG       = container.querySelector('#bklit-chart-g');
+    const hitRect      = container.querySelector('#bklit-hit-rect');
+    const gridG        = container.querySelector('#bklit-grid-g');
+    const fadeDotStop  = container.querySelector('#bklit-fade-dot-stop');
+    const fadeMaskRect = container.querySelector('#bklit-fade-mask-rect');
+    const areaPathEl   = container.querySelector('#bklit-area-path');
+    const linePathEl   = container.querySelector('#bklit-line-path');
+    const liveGuideEl  = container.querySelector('#bklit-live-guide');
+    const scrubG       = container.querySelector('#bklit-scrub-g');
+    const scrubLine    = container.querySelector('#bklit-scrub-line');
+    const scrubDot     = container.querySelector('#bklit-scrub-dot');
+    const liveTipG     = container.querySelector('#bklit-live-tip-g');
+    const liveHalo     = container.querySelector('#bklit-live-halo');
+    const liveDot      = container.querySelector('#bklit-live-dot');
+    const liveBadge    = container.querySelector('#bklit-live-badge');
+    const liveBadgeRect= container.querySelector('#bklit-live-badge-rect');
+    const liveBadgeText= container.querySelector('#bklit-live-badge-text');
+    const yAxisEl      = container.querySelector('#bklit-y-axis');
+    const xAxisEl      = container.querySelector('#bklit-x-axis');
+    const hoverPillEl  = container.querySelector('#bklit-hover-pill');
+    const hoverPillTxt = container.querySelector('#bklit-hover-pill-text');
+
+    // Create 5 reusable X-axis tick DOM nodes
+    const xTickNodes = [];
+    for (let i = 0; i < NUM_X_TICKS; i++) {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'position:absolute;bottom:6px;width:0;display:flex;justify-content:center;';
+        const span = document.createElement('span');
+        span.style.cssText = 'white-space:nowrap;font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--t3);transition:opacity 0.15s ease;';
+        wrap.appendChild(span);
+        xAxisEl.appendChild(wrap);
+        xTickNodes.push({ wrap, span });
+    }
+
+    // Mouse / pointer scrubbing interactions
+    chartG.addEventListener('mousemove', (e) => {
+        const rect = svgEl.getBoundingClientRect();
+        const x = e.clientX - rect.left - MARGIN.left;
+        const innerW = Math.max(1, rect.width - MARGIN.left - MARGIN.right);
+        cursorX = (x >= 0 && x <= innerW) ? x : null;
+    });
+    chartG.addEventListener('mouseleave', () => {
+        cursorX = null;
+    });
+
+    // Compute target Y range from visible points + latest value (computeTargetRange from live-line-chart.tsx)
+    function computeTargetRange(visiblePts, val) {
+        let min = 0;
+        let max = val;
+        for (let i = 0; i < visiblePts.length; i++) {
+            const v = visiblePts[i].value;
+            if (v > max) max = v;
+        }
+        const rawRange = Math.max(max - min, 5);
+        const pad = rawRange * 0.18;
+        return { yMin: 0, yMax: max + pad };
+    }
+
+    // pickNiceInterval with hysteresis (from live-y-axis.tsx)
+    function pickNiceInterval(valRange, chartHeight, minGap) {
+        if (valRange <= 0 || chartHeight <= 0) return 1;
+        const pxPerUnit = chartHeight / valRange;
+        if (prevInterval > 0) {
+            const px = prevInterval * pxPerUnit;
+            if (px >= minGap * 0.55 && px <= minGap * 2.8) return prevInterval;
+        }
+        const divisorSets = [[2, 2.5, 2], [2, 2, 2.5], [2.5, 2, 2]];
+        let best = Number.POSITIVE_INFINITY;
+        for (const divs of divisorSets) {
+            let span = Math.pow(10, Math.ceil(Math.log10(valRange)));
+            let i = 0;
+            let d = divs[i % 3];
+            while ((span / d) * pxPerUnit >= minGap) {
+                span /= d;
+                i++;
+                d = divs[i % 3];
+            }
+            if (span < best) best = span;
+        }
+        prevInterval = best === Number.POSITIVE_INFINITY ? valRange / 4 : best;
+        return prevInterval;
+    }
+
+    // Monotone cubic Hermite spline path generator (@visx/curve curveMonotoneX)
+    function buildMonotoneCubicPaths(coords, baselineY) {
+        const n = coords.length;
+        if (n === 0) return { line: '', area: '' };
+        if (n === 1) {
+            const p = coords[0];
+            return {
+                line: `M ${p.x.toFixed(2)},${p.y.toFixed(2)}`,
+                area: `M ${p.x.toFixed(2)},${baselineY.toFixed(2)} L ${p.x.toFixed(2)},${p.y.toFixed(2)} Z`
+            };
+        }
+        const dx = new Array(n - 1);
+        const dy = new Array(n - 1);
+        const m  = new Array(n - 1);
+        for (let i = 0; i < n - 1; i++) {
+            dx[i] = Math.max(coords[i + 1].x - coords[i].x, 1e-4);
+            dy[i] = coords[i + 1].y - coords[i].y;
+            m[i]  = dy[i] / dx[i];
+        }
+        const tangents = new Array(n);
+        tangents[0]     = m[0];
+        tangents[n - 1] = m[n - 2];
+        for (let i = 1; i < n - 1; i++) {
+            const m0 = m[i - 1];
+            const m1 = m[i];
+            if (m0 * m1 <= 0) {
+                tangents[i] = 0;
+            } else {
+                const dx0 = dx[i - 1];
+                const dx1 = dx[i];
+                const common = dx0 + dx1;
+                tangents[i] = (3 * common) / ((common + dx1) / m0 + (common + dx0) / m1);
+            }
+        }
+        let d = `M ${coords[0].x.toFixed(2)},${coords[0].y.toFixed(2)}`;
+        for (let i = 0; i < n - 1; i++) {
+            const p0 = coords[i];
+            const p1 = coords[i + 1];
+            const step = dx[i] / 3;
+            const cp1x = p0.x + step;
+            const cp1y = p0.y + tangents[i] * step;
+            const cp2x = p1.x - step;
+            const cp2y = p1.y - tangents[i + 1] * step;
+            d += ` C ${cp1x.toFixed(2)},${cp1y.toFixed(2)} ${cp2x.toFixed(2)},${cp2y.toFixed(2)} ${p1.x.toFixed(2)},${p1.y.toFixed(2)}`;
+        }
+        const area = `${d} L ${coords[n - 1].x.toFixed(2)},${baselineY.toFixed(2)} L ${coords[0].x.toFixed(2)},${baselineY.toFixed(2)} Z`;
+        return { line: d, area };
+    }
+
+    // Binary search interpolation at timeSec (interpolateAtTime from live-line-chart.tsx)
+    function interpolateAtTime(pts, timeSec) {
+        if (!pts.length) return 0;
+        if (timeSec <= pts[0].time) return pts[0].value;
+        if (timeSec >= pts[pts.length - 1].time) return pts[pts.length - 1].value;
+        let lo = 0;
+        let hi = pts.length - 1;
+        while (hi - lo > 1) {
+            const mid = (lo + hi) >> 1;
+            if (pts[mid].time <= timeSec) lo = mid;
+            else hi = mid;
+        }
+        const p1 = pts[lo];
+        const p2 = pts[hi];
+        const dt = p2.time - p1.time;
+        if (dt <= 0) return p1.value;
+        return p1.value + ((timeSec - p1.time) / dt) * (p2.value - p1.value);
+    }
+
+    // Stream sample every 450ms so the chart advances smoothly even when idle
+    setInterval(() => {
+        const nowMs = Date.now();
+        // Decay liveRps gently if no new requests arrived in the last 1.6s
+        if (recentReqSamples.length > 0) {
+            const lastSampleAge = nowMs - recentReqSamples[recentReqSamples.length - 1].t;
+            if (lastSampleAge > 1600 && liveRps > 0) {
+                liveRps = Math.max(0, Math.round(liveRps * 0.72 * 10) / 10);
+                if (liveRps < 0.2) liveRps = 0;
+                targetValue = liveRps;
+                const avgB = el('avg-latency-badge');
+                if (avgB) avgB.textContent = `Live: ${liveRps.toFixed(1)} req/s`;
+            }
+        }
+        points.push({ time: nowMs / 1000, value: targetValue });
+        const cutoff = (nowMs - 90000) / 1000;
+        while (points.length > 2 && points[0].time < cutoff) {
+            points.shift();
+        }
+    }, 450);
+
+    // 60fps animation loop (nextAnimFrame from live-line-chart.tsx)
+    function renderTick() {
+        const rect = container.getBoundingClientRect();
+        const width  = Math.max(260, rect.width  || 560);
+        const height = Math.max(180, rect.height || 240);
+        const innerW = Math.max(100, width - MARGIN.left - MARGIN.right);
+        const innerH = Math.max(80,  height - MARGIN.top - MARGIN.bottom);
+
+        hitRect.setAttribute('width', String(innerW));
+        hitRect.setAttribute('height', String(innerH));
+        fadeMaskRect.setAttribute('width', String(innerW));
+        fadeMaskRect.setAttribute('height', String(innerH + 40));
+        yAxisEl.style.height = `${innerH}px`;
+
+        const nowMs = Date.now();
+        const domainEndMs   = nowMs + LEADING_MS;
+        const domainStartMs = domainEndMs - WINDOW_MS;
+        const windowStartSec = domainStartMs / 1000;
+
+        // Slice points visible in [windowStartSec, now]
+        let startIdx = 0;
+        while (startIdx < points.length && points[startIdx].time < windowStartSec) {
+            startIdx++;
+        }
+        if (startIdx > 0) startIdx--;
+        const visible = points.slice(startIdx);
+
+        // Compute target range & lerp frame
+        const targetRange = computeTargetRange(visible, targetValue);
+        frame.now = nowMs;
+        frame.yMin = 0;
+        frame.yMax = targetRange.yMax > frame.yMax
+            ? targetRange.yMax
+            : frame.yMax + (targetRange.yMax - frame.yMax) * LERP_SPEED;
+        frame.displayValue = frame.displayValue + (targetValue - frame.displayValue) * LERP_SPEED;
+        if (Math.abs(frame.displayValue) < 0.02 && targetValue === 0) {
+            frame.displayValue = 0;
+        }
+
+        const xScale = (ms) => ((ms - domainStartMs) / WINDOW_MS) * innerW;
+        const yRange = Math.max(frame.yMax - frame.yMin, 1);
+        const yScale = (val) => innerH - ((val - frame.yMin) / yRange) * innerH;
+
+        // Build contextData with 2 virtual points (at "now" and "now + 1 unit")
+        const renderPts = visible.map(p => ({ time: p.time, value: p.value }));
+        renderPts.push({ time: nowMs / 1000, value: frame.displayValue });
+        renderPts.push({ time: (nowMs + X_TICK_UNIT_MS) / 1000, value: frame.displayValue });
+
+        const coords = renderPts.map(p => ({
+            x: xScale(p.time * 1000),
+            y: Math.min(innerH, Math.max(0, yScale(p.value)))
+        }));
+
+        const { line, area } = buildMonotoneCubicPaths(coords, innerH);
+        linePathEl.setAttribute('d', line);
+        areaPathEl.setAttribute('d', area);
+
+        // Live tip position (second-to-last point is "now")
+        const liveDotX = Math.max(0, Math.min(innerW, xScale(nowMs)));
+        const liveDotY = Math.min(innerH, Math.max(0, yScale(frame.displayValue)));
+
+        const dotStopPct = Math.min(98, Math.max(10, (liveDotX / innerW) * 100));
+        fadeDotStop.setAttribute('offset', `${dotStopPct.toFixed(1)}%`);
+
+        liveGuideEl.setAttribute('x2', String(innerW));
+        liveGuideEl.setAttribute('y1', liveDotY.toFixed(2));
+        liveGuideEl.setAttribute('y2', liveDotY.toFixed(2));
+
+        liveHalo.setAttribute('cx', liveDotX.toFixed(2));
+        liveHalo.setAttribute('cy', liveDotY.toFixed(2));
+        liveDot.setAttribute('cx', liveDotX.toFixed(2));
+        liveDot.setAttribute('cy', liveDotY.toFixed(2));
+
+        // Badge pill at live tip (clamped so it never clips outside the card)
+        const badgeLabel = formatBadgeValue(frame.displayValue);
+        const badgeW = Math.round(badgeLabel.length * 6.6 + 14);
+        const badgeX = (liveDotX + 10 + badgeW <= innerW + MARGIN.right - 2)
+            ? (liveDotX + 10)
+            : (liveDotX - badgeW - 10);
+        const badgeY = Math.max(12, Math.min(innerH - 12, liveDotY));
+        liveBadge.setAttribute('transform', `translate(${badgeX.toFixed(1)},${badgeY.toFixed(1)})`);
+        liveBadgeRect.setAttribute('width', String(badgeW));
+        liveBadgeText.textContent = badgeLabel;
+
+        // LiveYAxis & horizontal grid lines
+        const interval = pickNiceInterval(yRange, innerH, 38);
+        const firstTick = Math.ceil(frame.yMin / interval) * interval;
+        const gridColor = isLight ? 'rgba(15, 23, 42, 0.06)' : 'rgba(255, 255, 255, 0.05)';
+        let yHtml = '';
+        let gHtml = '';
+        for (let v = firstTick; v <= frame.yMax + interval * 0.25; v += interval) {
+            const rounded = Math.round(v * 100) / 100;
+            const y = yScale(rounded);
+            if (y < -4 || y > innerH + 4) continue;
+            const fromEdge = Math.min(y, innerH - y);
+            const alpha = fromEdge >= EDGE_FADE_PX ? 1 : Math.max(0, fromEdge / EDGE_FADE_PX);
+            const lbl = formatYValue(rounded);
+            if (lbl) {
+                yHtml += `<div style="position:absolute;right:0;top:${(y - 7).toFixed(1)}px;padding-right:8px;text-align:right;opacity:${alpha.toFixed(2)};font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t3);white-space:nowrap;">${lbl}</div>`;
+                gHtml += `<line x1="0" x2="${innerW}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${gridColor}" stroke-width="1" stroke-dasharray="4,4" />`;
+            }
+        }
+        yAxisEl.innerHTML = yHtml;
+        gridG.innerHTML   = gHtml;
+
+        // LiveXAxis & interactive crosshair scrubbing
+        const isHovering = cursorX !== null && cursorX >= 0 && cursorX <= innerW;
+        const crosshairScreenX = isHovering ? (cursorX + MARGIN.left) : null;
+        const stepMs = WINDOW_MS / (NUM_X_TICKS - 1);
+
+        for (let i = 0; i < NUM_X_TICKS; i++) {
+            const tMs = domainStartMs + i * stepMs;
+            const xPx = xScale(tMs) + MARGIN.left;
+            let op = 1;
+            if (isHovering && crosshairScreenX !== null) {
+                const dist = Math.abs(xPx - crosshairScreenX);
+                if (dist < TICKER_HALF_W) op = 0;
+                else if (dist < TICKER_HALF_W + FADE_BUFFER) op = (dist - TICKER_HALF_W) / FADE_BUFFER;
+            }
+            xTickNodes[i].wrap.style.left = `${xPx.toFixed(1)}px`;
+            xTickNodes[i].span.style.opacity = op.toFixed(2);
+            xTickNodes[i].span.textContent = formatTime(tMs);
+        }
+
+        if (isHovering) {
+            const hoverTimeMs = domainStartMs + (cursorX / innerW) * WINDOW_MS;
+            const hoverVal = interpolateAtTime(renderPts, hoverTimeMs / 1000);
+            const hoverY = Math.min(innerH, Math.max(0, yScale(hoverVal)));
+
+            liveTipG.style.opacity = '0.25';
+            scrubG.style.opacity   = '1';
+            scrubLine.setAttribute('x1', cursorX.toFixed(1));
+            scrubLine.setAttribute('x2', cursorX.toFixed(1));
+            scrubLine.setAttribute('y2', String(innerH));
+            scrubDot.setAttribute('cx', cursorX.toFixed(1));
+            scrubDot.setAttribute('cy', hoverY.toFixed(1));
+
+            hoverPillEl.style.opacity = '1';
+            hoverPillEl.style.left    = `${(cursorX + MARGIN.left).toFixed(1)}px`;
+            hoverPillTxt.textContent  = `${formatTime(hoverTimeMs)} • ${hoverVal.toFixed(1)} req/s`;
+        } else {
+            liveTipG.style.opacity    = '1';
+            scrubG.style.opacity      = '0';
+            hoverPillEl.style.opacity = '0';
+        }
+
+        requestAnimationFrame(renderTick);
+    }
+
+    requestAnimationFrame(renderTick);
+
+    return {
+        setTargetValue(val) {
+            targetValue = Math.max(0, Number(val) || 0);
+            points.push({ time: Date.now() / 1000, value: targetValue });
+        },
+        setTheme(lightMode) {
+            isLight = Boolean(lightMode);
+        },
+        reset() {
+            targetValue = 0;
+            frame.displayValue = 0;
+            frame.yMax = 10;
+            const tSec = Date.now() / 1000;
+            points = [];
+            for (let i = 60; i >= 0; i--) {
+                points.push({ time: tSec - i * 0.5, value: 0 });
+            }
+        }
+    };
+}
+
 // ── Bklit UI Charts ────────────────────────────────────────────────
 function initCharts() {
-    const rtCanvas = el('response-time-chart');
+    const liveContainer = el('bklit-live-line-chart');
+    if (liveContainer && !window.bklitLiveChart) {
+        window.bklitLiveChart = createBklitLiveLineChart(liveContainer);
+    }
+
     const rrCanvas = el('request-rate-chart');
-    if (!rtCanvas || !rrCanvas || typeof Chart === 'undefined') return;
+    if (!rrCanvas || typeof Chart === 'undefined') return;
 
     const baseOpts = {
         responsive: true,
@@ -392,45 +851,30 @@ function initCharts() {
         }
     };
 
-    window.responseTimeChart = new Chart(rtCanvas.getContext('2d'), {
+    window.requestRateChart = new Chart(rrCanvas.getContext('2d'), {
         type: 'bar',
         data: {
-            labels: ['Critical', 'High', 'Medium', 'Low / Info'],
+            labels: ['2xx/3xx OK', 'Blocked/5xx', 'Critical', 'High', 'Med/Low'],
             datasets: [{
-                label: 'Findings',
-                data: [0, 0, 0, 0],
+                label: 'Telemetry Count',
+                data: [0, 0, 0, 0, 0],
                 backgroundColor: [
-                    'rgba(220, 38, 38, 0.28)',
+                    'rgba(148, 163, 184, 0.25)',
+                    'rgba(248, 113, 113, 0.22)',
+                    'rgba(220, 38, 38, 0.30)',
                     'rgba(245, 158, 11, 0.28)',
-                    'rgba(148, 163, 184, 0.24)',
-                    'rgba(113, 113, 122, 0.22)'
+                    'rgba(113, 113, 122, 0.24)'
                 ],
                 borderColor: [
+                    '#94a3b8',
+                    '#f87171',
                     '#dc2626',
                     '#f59e0b',
-                    '#94a3b8',
                     '#71717a'
                 ],
                 borderWidth: 1.5,
                 borderRadius: 6,
-                barThickness: 38
-            }]
-        },
-        options: JSON.parse(JSON.stringify(baseOpts))
-    });
-
-    window.requestRateChart = new Chart(rrCanvas.getContext('2d'), {
-        type: 'bar',
-        data: {
-            labels: ['Successful (2xx/3xx)', 'Blocked / Errors'],
-            datasets: [{
-                label: 'Requests',
-                data: [0, 0],
-                backgroundColor: ['rgba(148, 163, 184, 0.25)', 'rgba(248, 113, 113, 0.22)'],
-                borderColor:     ['#94a3b8', '#f87171'],
-                borderWidth: 1.5,
-                borderRadius: 6,
-                barThickness: 44
+                barThickness: 32
             }]
         },
         options: JSON.parse(JSON.stringify(baseOpts))
@@ -438,19 +882,15 @@ function initCharts() {
 }
 
 function updateCharts() {
-    if (window.responseTimeChart) {
-        const rt = window.responseTimeChart;
-        rt.data.datasets[0].data = [
-            sevCounts.Critical,
-            sevCounts.High,
-            sevCounts.Medium,
-            sevCounts.Low
-        ];
-        rt.update('none');
-    }
     if (window.requestRateChart) {
         const rr = window.requestRateChart;
-        rr.data.datasets[0].data = [metricsData.successful_requests, metricsData.failed_requests];
+        rr.data.datasets[0].data = [
+            metricsData.successful_requests,
+            metricsData.failed_requests,
+            sevCounts.Critical,
+            sevCounts.High,
+            sevCounts.Medium + sevCounts.Low
+        ];
         rr.update('none');
     }
 }
@@ -587,8 +1027,9 @@ async function resetAll() {
     try {
         if (BACKEND_HOST) await fetch(`${getBackendUrls().http}/api/logs/clear`, { method: 'POST' });
         hasLiveVelocity = false;
-        recentReqTimestamps = [];
-        lastVelocitySampleTime = 0;
+        recentReqSamples = [];
+        lastSampleTotalReqs = 0;
+        liveRps = 0;
         peakRps = 0;
         vulnCount = 0;
         historyCount = 0;
@@ -596,6 +1037,9 @@ async function resetAll() {
         updateVulnBadges();
         const navH = el('nav-history-count');
         if (navH) navH.textContent = '0';
+        if (window.bklitLiveChart) {
+            window.bklitLiveChart.reset();
+        }
 
         metricsData = {
             total_requests: 0,
